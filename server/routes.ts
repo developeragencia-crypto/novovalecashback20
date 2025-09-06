@@ -128,15 +128,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Buscar indicações reais do banco de dados
       const userReferrals = await db.select({
         id: referrals.id,
-        referredUserId: referrals.referred_user_id,
-        bonusAmount: referrals.bonus_amount,
+        referredUserId: referrals.referred_id,
+        bonusAmount: referrals.bonus,
         status: referrals.status,
         createdAt: referrals.created_at,
         referredUserName: users.name
       })
       .from(referrals)
-      .leftJoin(users, eq(referrals.referred_user_id, users.id))
-      .where(eq(referrals.referrer_user_id, userId))
+      .leftJoin(users, eq(referrals.referred_id, users.id))
+      .where(eq(referrals.referrer_id, userId))
       .orderBy(desc(referrals.created_at));
 
       const formattedReferrals = userReferrals.map(ref => ({
@@ -1022,11 +1022,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Buscar indicações
       const userReferrals = await db.select()
         .from(referrals)
-        .where(eq(referrals.referrer_user_id, userId));
+        .where(eq(referrals.referrer_id, userId));
 
       const dashboardData = {
         cashbackBalance: parseFloat(userCashback[0]?.balance || "0"),
-        referralBalance: userReferrals.reduce((sum, ref) => sum + parseFloat(ref.bonus_amount || "0"), 0),
+        referralBalance: userReferrals.reduce((sum, ref) => sum + parseFloat(ref.bonus || "0"), 0),
         transactionsCount: userTransactions.length,
         recentTransactions: userTransactions.map(t => ({
           id: t.id,
