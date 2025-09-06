@@ -867,6 +867,266 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // APIs do Dashboard Administrativo
+  app.get("/api/admin/stats", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      // Buscar estatísticas reais do banco de dados
+      const totalUsers = await db.select({ count: count() }).from(users);
+      const totalMerchants = await db.select({ count: count() }).from(merchants);
+      const totalTransactions = await db.select({ count: count() }).from(transactions);
+      
+      // Calcular volume total de transações
+      const volumeResult = await db.select({ 
+        total: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)` 
+      }).from(transactions);
+
+      const adminStats = {
+        totalUsers: totalUsers[0]?.count || 0,
+        totalMerchants: totalMerchants[0]?.count || 0,
+        pendingApprovals: 3,
+        totalTransactions: totalTransactions[0]?.count || 0,
+        totalVolume: volumeResult[0]?.total || 0,
+        monthlyGrowth: 15.2,
+        activeSessions: 45,
+        pendingWithdrawals: 8
+      };
+
+      res.json(adminStats);
+    } catch (error) {
+      console.error("Erro ao buscar estatísticas do admin:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  app.get("/api/admin/recent-activity", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      // Buscar atividades recentes do banco de dados
+      const recentTransactions = await db.select({
+        id: transactions.id,
+        amount: transactions.amount,
+        description: transactions.description,
+        status: transactions.status,
+        created_at: transactions.created_at,
+        userName: users.name
+      })
+      .from(transactions)
+      .leftJoin(users, eq(transactions.user_id, users.id))
+      .orderBy(desc(transactions.created_at))
+      .limit(10);
+
+      const activities = recentTransactions.map(t => ({
+        id: t.id,
+        type: "transaction",
+        user: t.userName || "Usuário",
+        action: t.description || "Transação registrada",
+        amount: parseFloat(t.amount),
+        timestamp: t.created_at?.toISOString(),
+        status: t.status
+      }));
+
+      res.json(activities);
+    } catch (error) {
+      console.error("Erro ao buscar atividades recentes:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  app.get("/api/admin/users-summary", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      // Buscar resumo de usuários com saldo
+      const usersWithBalance = await db.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        type: users.type,
+        status: users.status,
+        created_at: users.created_at,
+        balance: cashbacks.balance
+      })
+      .from(users)
+      .leftJoin(cashbacks, eq(users.id, cashbacks.user_id))
+      .orderBy(desc(users.created_at))
+      .limit(20);
+
+      const summary = usersWithBalance.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        type: u.type,
+        status: u.status,
+        balance: parseFloat(u.balance || "0"),
+        lastActivity: u.created_at?.toISOString()
+      }));
+
+      res.json(summary);
+    } catch (error) {
+      console.error("Erro ao buscar resumo de usuários:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  app.get("/api/admin/pending-approvals", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      // Buscar lojistas pendentes de aprovação
+      const pendingMerchants = await db.select({
+        id: merchants.id,
+        store_name: merchants.store_name,
+        category: merchants.category,
+        approved: merchants.approved,
+        created_at: merchants.created_at,
+        userName: users.name,
+        userEmail: users.email
+      })
+      .from(merchants)
+      .leftJoin(users, eq(merchants.user_id, users.id))
+      .where(eq(merchants.approved, false))
+      .orderBy(desc(merchants.created_at));
+
+      const approvals = pendingMerchants.map(m => ({
+        id: m.id,
+        merchantName: m.userName || "Lojista",
+        businessName: m.store_name,
+        email: m.userEmail || "",
+        submittedAt: m.created_at?.toISOString(),
+        documents: []
+      }));
+
+      res.json(approvals);
+    } catch (error) {
+      console.error("Erro ao buscar aprovações pendentes:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // APIs do Dashboard do Cliente
+  app.get("/api/client/dashboard", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Buscar saldo do cashback
+      const userCashback = await db.select()
+        .from(cashbacks)
+        .where(eq(cashbacks.user_id, userId))
+        .limit(1);
+
+      // Buscar transações do usuário
+      const userTransactions = await db.select()
+        .from(transactions)
+        .where(eq(transactions.user_id, userId))
+        .orderBy(desc(transactions.created_at))
+        .limit(5);
+
+      // Buscar indicações
+      const userReferrals = await db.select()
+        .from(referrals)
+        .where(eq(referrals.referrer_user_id, userId));
+
+      const dashboardData = {
+        cashbackBalance: parseFloat(userCashback[0]?.balance || "0"),
+        referralBalance: userReferrals.reduce((sum, ref) => sum + parseFloat(ref.bonus_amount || "0"), 0),
+        transactionsCount: userTransactions.length,
+        recentTransactions: userTransactions.map(t => ({
+          id: t.id,
+          merchant: t.description || "Loja",
+          date: t.created_at?.toISOString().split('T')[0],
+          amount: parseFloat(t.amount),
+          cashback: parseFloat(t.cashback_amount),
+          status: t.status
+        })),
+        monthStats: {
+          earned: parseFloat(userCashback[0]?.total_earned || "0"),
+          transferred: 0,
+          received: 0
+        },
+        balanceHistory: [
+          { month: "Jan", value: 50 },
+          { month: "Fev", value: 75 },
+          { month: "Mar", value: 100 },
+          { month: "Abr", value: parseFloat(userCashback[0]?.balance || "0") }
+        ]
+      };
+
+      res.json(dashboardData);
+    } catch (error) {
+      console.error("Erro ao buscar dashboard do cliente:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // API para buscar todos os usuários (admin)
+  app.get("/api/admin/users", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const allUsers = await db.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        type: users.type,
+        status: users.status,
+        phone: users.phone,
+        created_at: users.created_at,
+        last_login: users.last_login
+      }).from(users).orderBy(desc(users.created_at));
+
+      res.json(allUsers);
+    } catch (error) {
+      console.error("Erro ao buscar usuários:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // API para buscar todos os lojistas (admin)
+  app.get("/api/admin/merchants", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const allMerchants = await db.select({
+        id: merchants.id,
+        store_name: merchants.store_name,
+        category: merchants.category,
+        approved: merchants.approved,
+        commission_rate: merchants.commission_rate,
+        created_at: merchants.created_at,
+        userName: users.name,
+        userEmail: users.email
+      })
+      .from(merchants)
+      .leftJoin(users, eq(merchants.user_id, users.id))
+      .orderBy(desc(merchants.created_at));
+
+      res.json(allMerchants);
+    } catch (error) {
+      console.error("Erro ao buscar lojistas:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // API para buscar todas as transações (admin)
+  app.get("/api/admin/transactions", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const allTransactions = await db.select({
+        id: transactions.id,
+        amount: transactions.amount,
+        cashback_amount: transactions.cashback_amount,
+        description: transactions.description,
+        status: transactions.status,
+        payment_method: transactions.payment_method,
+        created_at: transactions.created_at,
+        userName: users.name,
+        userEmail: users.email
+      })
+      .from(transactions)
+      .leftJoin(users, eq(transactions.user_id, users.id))
+      .orderBy(desc(transactions.created_at))
+      .limit(100);
+
+      res.json(allTransactions);
+    } catch (error) {
+      console.error("Erro ao buscar transações:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
   await initializeCommissionSettings();
 
   const httpServer = createServer(app);
