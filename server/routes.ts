@@ -68,62 +68,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API para obter ofertas disponíveis
   app.get("/api/offers", async (req: Request, res: Response) => {
     try {
-      const offers = [
-        {
-          id: 1,
-          title: "Amazon Brasil",
-          description: "Cashback em compras na maior loja online do Brasil",
-          cashbackPercentage: "3.5",
-          category: "ecommerce",
-          imageUrl: "https://images.unsplash.com/photo-1523474253046-8cd2748b5fd2?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200",
-          active: true
-        },
-        {
-          id: 2,
-          title: "iFood",
-          description: "Ganhe cashback em todos os seus pedidos de delivery",
-          cashbackPercentage: "2.0",
-          category: "delivery",
-          imageUrl: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200",
-          active: true
-        },
-        {
-          id: 3,
-          title: "Booking.com",
-          description: "Cashback em reservas de hotéis e viagens",
-          cashbackPercentage: "4.0",
-          category: "viagem",
-          imageUrl: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200",
-          active: true
-        },
-        {
-          id: 4,
-          title: "Magazine Luiza",
-          description: "Cashback em eletrônicos e eletrodomésticos",
-          cashbackPercentage: "2.5",
-          category: "loja",
-          imageUrl: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200",
-          active: true
-        },
-        {
-          id: 5,
-          title: "Uber Eats",
-          description: "Cashback em pedidos de comida no Uber Eats",
-          cashbackPercentage: "1.5",
-          category: "delivery",
-          imageUrl: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200",
-          active: true
-        },
-        {
-          id: 6,
-          title: "Netshoes",
-          description: "Cashback em artigos esportivos e calçados",
-          cashbackPercentage: "3.0",
-          category: "loja",
-          imageUrl: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200",
-          active: true
-        }
-      ];
+      // Retornar ofertas autênticas da configuração
+      const offers = AUTHENTIC_CONFIG.offers.map(offer => ({
+        id: offer.id,
+        title: offer.title,
+        description: offer.description,
+        cashbackPercentage: offer.cashback_percentage.toString(),
+        category: offer.category,
+        imageUrl: offer.image_url,
+        active: offer.is_active
+      }));
 
       res.json(offers);
     } catch (error) {
@@ -140,24 +94,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Usuário não autenticado" });
       }
 
-      const userTransactions = [
-        {
-          id: 1,
-          amount: "25.00",
-          type: "cashback",
-          description: "Cashback Amazon - Compra #12345",
-          status: "completed",
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: 2,
-          amount: "15.00",
-          type: "referral",
-          description: "Bônus por indicação - João Silva",
-          status: "completed",
-          createdAt: new Date(Date.now() - 86400000).toISOString()
-        }
-      ];
+      // Buscar transações reais do banco de dados
+      const userTransactions = await db.select({
+        id: transactions.id,
+        amount: transactions.amount,
+        cashback_amount: transactions.cashback_amount,
+        description: transactions.description,
+        status: transactions.status,
+        payment_method: transactions.payment_method,
+        created_at: transactions.created_at,
+        source: transactions.source
+      })
+      .from(transactions)
+      .where(eq(transactions.user_id, userId))
+      .orderBy(desc(transactions.created_at))
+      .limit(50);
 
       res.json(userTransactions);
     } catch (error) {
@@ -174,30 +125,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Usuário não autenticado" });
       }
 
-      const userReferrals = [
-        {
-          id: 1,
-          referredUser: {
-            firstName: "João",
-            lastName: "Silva"
-          },
-          bonus: "25.00",
-          status: "confirmed",
-          createdAt: new Date(Date.now() - 172800000).toISOString()
-        },
-        {
-          id: 2,
-          referredUser: {
-            firstName: "Maria",
-            lastName: "Santos"
-          },
-          bonus: "25.00",
-          status: "pending",
-          createdAt: new Date(Date.now() - 86400000).toISOString()
-        }
-      ];
+      // Buscar indicações reais do banco de dados
+      const userReferrals = await db.select({
+        id: referrals.id,
+        referredUserId: referrals.referred_user_id,
+        bonusAmount: referrals.bonus_amount,
+        status: referrals.status,
+        createdAt: referrals.created_at,
+        referredUserName: users.name
+      })
+      .from(referrals)
+      .leftJoin(users, eq(referrals.referred_user_id, users.id))
+      .where(eq(referrals.referrer_user_id, userId))
+      .orderBy(desc(referrals.created_at));
 
-      res.json(userReferrals);
+      const formattedReferrals = userReferrals.map(ref => ({
+        id: ref.id,
+        referredUser: {
+          firstName: ref.referredUserName?.split(' ')[0] || 'Usuário',
+          lastName: ref.referredUserName?.split(' ').slice(1).join(' ') || ''
+        },
+        bonus: ref.bonusAmount || '0.00',
+        status: ref.status,
+        createdAt: ref.createdAt?.toISOString()
+      }));
+
+      res.json(formattedReferrals);
     } catch (error) {
       console.error("Erro ao buscar indicações:", error);
       res.status(500).json({ message: "Erro interno do servidor" });

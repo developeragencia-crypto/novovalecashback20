@@ -218,8 +218,7 @@ export function setupAuth(app: Express) {
         const existingBonus = await db
           .select()
           .from(userBonuses)
-          .where(eq(userBonuses.user_id, user.id))
-          .where(eq(userBonuses.type, "signup_bonus"))
+          .where(and(eq(userBonuses.user_id, user.id), eq(userBonuses.type, "signup_bonus")))
           .limit(1);
 
         if (existingBonus.length === 0) {
@@ -256,19 +255,9 @@ export function setupAuth(app: Express) {
             const merchantData: InsertMerchant = {
               user_id: user.id,
               store_name: user.name || `Loja de ${user.email}`,
-              description: "",
-              category: "",
-              address: "",
-              city: "",
-              state: "",
-              country: "",
-              zip_code: "",
-              logo: null,
-              banner: null,
-              website: "",
+              category: "loja",
               approved: true, // Aprovação automática para fins de teste
-              commission_rate: "2", // Taxa padrão de 2%
-              created_at: new Date()
+              commission_rate: "2" // Taxa padrão de 2%
             };
             
             await db.insert(merchants).values(merchantData);
