@@ -46,12 +46,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 
-// Definição do schema para validação do formulário de Taxas (Novo Modelo)
+// Definição do schema para validação do formulário de Taxas
 const ratesFormSchema = z.object({
-  platformFee: z.preprocess(
-    (val) => parseFloat(val as string), 
-    z.number().min(0).max(100)
-  ),
   cashbackRate: z.preprocess(
     (val) => parseFloat(val as string), 
     z.number().min(0).max(100)
@@ -60,9 +56,17 @@ const ratesFormSchema = z.object({
     (val) => parseFloat(val as string), 
     z.number().min(0).max(100)
   ),
+  merchantCommission: z.preprocess(
+    (val) => parseFloat(val as string), 
+    z.number().min(0).max(100)
+  ),
   minWithdrawal: z.preprocess(
     (val) => parseFloat(val as string), 
     z.number().min(0)
+  ),
+  maxCashbackBonus: z.preprocess(
+    (val) => parseFloat(val as string), 
+    z.number().min(0).max(100)
   ),
 });
 
@@ -120,25 +124,29 @@ export default function AdminSettings() {
   
   const { toast } = useToast();
   
-  // Define o tipo das configurações de taxas (Novo Modelo)
+  // Define o tipo das configurações de taxas
   interface RatesSettings {
-    platform_fee: string;
-    client_cashback: string;
-    referral_bonus: string;
-    min_withdrawal: string;
+    platformFee: string;
+    merchantCommission: string;
+    clientCashback: string;
+    referralCommission: string;
+    minimumWithdrawal: string;
+    maximumCashback: string;
   }
 
-  // Valores padrão para as configurações de taxas (Novo Modelo)
+  // Valores padrão para as configurações de taxas
   const defaultRatesSettings: RatesSettings = {
-    platform_fee: "5.0",
-    client_cashback: "2.0",
-    referral_bonus: "1.0",
-    min_withdrawal: "20.0"
+    platformFee: "5.0",
+    merchantCommission: "2.0",
+    clientCashback: "2.0",
+    referralCommission: "1.0",
+    minimumWithdrawal: "50.0",
+    maximumCashback: "10.0"
   };
   
-  // Query para buscar configurações de taxas do novo modelo
+  // Query para buscar configurações de taxas
   const { data: ratesSettings, isLoading: isRatesLoading } = useQuery<RatesSettings>({
-    queryKey: ['/api/admin/settings/commission'],
+    queryKey: ['/api/admin/settings/rates'],
     placeholderData: defaultRatesSettings
   });
   
@@ -270,7 +278,7 @@ export default function AdminSettings() {
       console.log("Enviando dados para atualização:", commissionData);
       
       try {
-        const res = await apiRequest("PATCH", "/api/admin/settings/commission", commissionData);
+        const res = await apiRequest("PATCH", "/api/admin/settings/rates", commissionData);
         if (!res.ok) {
           throw new Error(`Erro ao atualizar: ${res.status} ${res.statusText}`);
         }
@@ -286,7 +294,7 @@ export default function AdminSettings() {
         description: "As configurações de taxas foram atualizadas com sucesso",
         variant: "default",
       });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/settings/commission'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/settings/rates'] });
     },
     onError: (error: any) => {
       toast({

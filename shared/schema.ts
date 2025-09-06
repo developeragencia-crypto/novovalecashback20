@@ -51,10 +51,6 @@ export const users = pgTable("users", {
   security_question: text("security_question"),
   security_answer: text("security_answer"),
   invitation_code: text("invitation_code"),
-  referral_code: text("referral_code"),
-  referred_by: integer("referred_by"),
-  referral_level: text("referral_level"),
-  password_updated: boolean("password_updated").default(false),
   created_at: timestamp("created_at").notNull().defaultNow(),
   last_login: timestamp("last_login"),
 });
@@ -82,7 +78,6 @@ export const cashbacks = pgTable("cashbacks", {
   user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   balance: numeric("balance").notNull().default("0.0"),
   total_earned: numeric("total_earned").notNull().default("0.0"),
-  total_spent: numeric("total_spent").notNull().default("0.0"),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -110,14 +105,12 @@ export const transactions = pgTable("transactions", {
   status: text("status").notNull().default("completed"),
   payment_method: text("payment_method").notNull(),
   created_at: timestamp("created_at").notNull().defaultNow(),
-  updated_at: timestamp("updated_at").defaultNow(),
   // Origem da transação (manual ou qrcode)
   source: text("source").default("manual"),
   // ID do QR code associado à transação (se houver)
   qr_code_id: text("qr_code_id"),
   // Optional fields that might not be in all database instances
   manual_amount: numeric("manual_amount"),
-  notes: text("notes"),
 });
 
 // Transaction Items
@@ -329,20 +322,30 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export const withdrawalRequests = pgTable("withdrawal_requests", {
   id: serial("id").primaryKey(),
   user_id: integer("user_id").notNull().references(() => users.id),
+  merchant_id: integer("merchant_id").notNull().references(() => merchants.id),
   amount: numeric("amount").notNull(),
+  fee_amount: numeric("fee_amount"),             // Valor da taxa do site (5%)
+  net_amount: numeric("net_amount"),             // Valor líquido (após descontar a taxa)
+  fee_percentage: numeric("fee_percentage"),     // Percentual da taxa aplicada
+  full_name: text("full_name").notNull(),
+  store_name: text("store_name").notNull(),
+  phone: text("phone").notNull(),
+  email: text("email").notNull(),
+  bank_name: text("bank_name").notNull(),
+  agency: text("agency").notNull(),
+  account: text("account").notNull(),
+  payment_method: text("payment_method").notNull().default("bank"),  // bank ou zelle
   status: text("status").notNull().default("pending").$type<WithdrawalStatusValues>(),
   notes: text("notes"),
-  bank_name: text("bank_name"),
-  account_number: text("account_number"),
-  account_holder: text("account_holder"),
   processed_by: integer("processed_by").references(() => users.id),
   processed_at: timestamp("processed_at"),
-  created_at: timestamp("created_at").defaultNow().notNull()
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull()
 });
 
 // Schema para inserção de solicitações de saque
 export const insertWithdrawalRequestSchema = createInsertSchema(withdrawalRequests)
-  .omit({ id: true, status: true, processed_by: true, processed_at: true, created_at: true });
+  .omit({ id: true, status: true, processed_by: true, processed_at: true, created_at: true, updated_at: true });
 
 // Tipo de solicitação de saque
 export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
@@ -351,65 +354,21 @@ export type InsertWithdrawalRequest = z.infer<typeof insertWithdrawalRequestSche
 // Tabela de bônus de usuários
 export const userBonuses = pgTable("user_bonuses", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  user_id: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
   type: text("type").notNull().default("signup_bonus"),
   description: text("description"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  usedAt: timestamp("used_at"),
-  isUsed: boolean("is_used").default(false).notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  used_at: timestamp("used_at"),
+  is_used: boolean("is_used").default(false).notNull(),
 });
 
 // Schema de inserção para bônus
 export const insertUserBonusSchema = createInsertSchema(userBonuses).omit({
   id: true,
-  createdAt: true,
+  created_at: true,
 });
 
 // Tipos para bônus
 export type UserBonus = typeof userBonuses.$inferSelect;
 export type InsertUserBonus = z.infer<typeof insertUserBonusSchema>;
-
-// Tabela de tokens de redefinição de senha
-export const passwordResetTokens = pgTable("password_reset_tokens", {
-  id: serial("id").primaryKey(),
-  user_id: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
-  token: text("token").notNull().unique(),
-  expires_at: timestamp("expires_at").notNull(),
-  used_at: timestamp("used_at"),
-  is_used: boolean("is_used").default(false).notNull(),
-  created_at: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Schema de inserção para tokens de redefinição
-export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({
-  id: true,
-  created_at: true,
-});
-
-// Tipos para tokens de redefinição
-export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
-export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
-
-// Tabela de notificações do sistema
-export const systemNotifications = pgTable("system_notifications", {
-  id: serial("id").primaryKey(),
-  user_id: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
-  type: text("type").notNull(), // 'password_reset', 'welcome', 'security_alert'
-  title: text("title").notNull(),
-  message: text("message").notNull(),
-  read_at: timestamp("read_at"),
-  sent_at: timestamp("sent_at").defaultNow().notNull(),
-  is_read: boolean("is_read").default(false).notNull(),
-  metadata: text("metadata"), // JSON string para dados adicionais
-});
-
-// Schema de inserção para notificações
-export const insertSystemNotificationSchema = createInsertSchema(systemNotifications).omit({
-  id: true,
-  sent_at: true,
-});
-
-// Tipos para notificações
-export type SystemNotification = typeof systemNotifications.$inferSelect;
-export type InsertSystemNotification = z.infer<typeof insertSystemNotificationSchema>;

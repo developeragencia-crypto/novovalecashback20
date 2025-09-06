@@ -507,41 +507,52 @@ export default function InvitePage({ defaultType = "client", params }: InvitePag
       try {
         console.log("Verificando informações do convite com código:", referralCode);
         const res = await fetch(`/api/invite/${referralCode}`);
-        
         if (!res.ok) {
-          console.warn("Código de convite não encontrado");
-          return null;
-        }
-        
-        const contentType = res.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          console.error('Resposta não é JSON válido');
-          return null;
+          console.warn("Código de convite não encontrado, criando dados padrão");
+          // Se o código não for encontrado, criamos dados padrão
+          const defaultData = {
+            referrerId: null,
+            referrerName: "Vale Cashback",
+            referrerType: referralType || "client",
+            referralCode: referralCode
+          };
+          
+          // Armazena o nome do referenciador padrão
+          setReferrerName("Vale Cashback");
+          
+          return defaultData;
         }
         
         const data = await res.json();
-        console.log("Dados do convite recebidos:", data);
+        console.log("Dados de referência obtidos:", data);
         
-        if (data.valid) {
-          // Armazena o nome do referenciador quando os dados são carregados
-          if (data.referrerName) {
-            console.log("Referenciador encontrado:", data.referrerName);
-            setReferrerName(data.referrerName);
-          }
-          
-          return {
-            referrerId: data.referrerId,
-            referrerName: data.referrerName,
-            referrerType: data.referrerType,
-            referralCode: data.referralCode,
-            bonus: data.bonus
-          };
+        // Armazena o nome do referenciador quando os dados são carregados
+        if (data && data.referrerName) {
+          console.log("Referenciador encontrado:", data.referrerName);
+          setReferrerName(data.referrerName);
         }
         
-        return null;
+        return data;
       } catch (error) {
         console.error('Erro ao verificar convite:', error);
-        return null;
+        
+        // Em caso de erro, criar dados padrão para evitar falha na renderização
+        const defaultData = {
+          referrerId: null,
+          referrerName: "Vale Cashback",
+          referrerType: referralType || "client",
+          referralCode: referralCode
+        };
+        
+        // Armazena o nome do referenciador padrão
+        setReferrerName("Vale Cashback");
+        // Mesmo com erro, ainda tenta usar o código de referência
+        return {
+          referralCode: referralCode,
+          // Campos vazios que serão preenchidos pelo servidor
+          referrerId: null,
+          referrerName: null
+        };
       }
     },
     enabled: !!referralCode,
@@ -676,7 +687,7 @@ export default function InvitePage({ defaultType = "client", params }: InvitePag
                           </li>
                           <li className="flex items-start gap-2">
                             <div className="h-5 w-5 text-blue-600 mt-0.5">✓</div>
-                            <span>1% indicações de bônus para começar</span>
+                            <span>$25.00 de bônus para começar</span>
                           </li>
                           <li className="flex items-start gap-2">
                             <div className="h-5 w-5 text-blue-600 mt-0.5">✓</div>
@@ -987,7 +998,7 @@ export default function InvitePage({ defaultType = "client", params }: InvitePag
                           <Store className="h-5 w-5 text-blue-600" />
                           <AlertTitle className="text-blue-600 font-semibold">Programa de Parceria</AlertTitle>
                           <AlertDescription className="text-slate-700">
-                            Ao se cadastrar como parceiro, você poderá oferecer cashback aos seus clientes e aumentar suas vendas. Receba <span className="font-medium text-blue-600">1% indicações</span> de bônus para utilizar na plataforma e atraia mais clientes para seu negócio.
+                            Ao se cadastrar como parceiro, você poderá oferecer cashback aos seus clientes e aumentar suas vendas. Receba <span className="font-medium text-blue-600">$25.00</span> de bônus para utilizar na plataforma e atraia mais clientes para seu negócio.
                           </AlertDescription>
                         </Alert>
                         

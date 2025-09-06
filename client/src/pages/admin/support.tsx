@@ -316,16 +316,12 @@ export default function AdminSupport() {
     }
   };
 
-  // Formatar data de forma segura
+  // Formatar data
   const formatDate = (dateString: string) => {
-    if (!dateString) return "Data não informada";
     try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return "Data inválida";
-      return format(date, "dd/MM/yyyy HH:mm");
+      return format(new Date(dateString), "dd/MM/yyyy HH:mm");
     } catch (error) {
-      console.error("Erro ao formatar data:", error);
-      return "Data inválida";
+      return dateString;
     }
   };
 

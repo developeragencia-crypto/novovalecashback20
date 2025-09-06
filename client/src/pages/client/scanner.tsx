@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { QrScanner } from "@/components/ui/qr-scanner-fixed";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Loader2, Check, X, Wallet } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -75,7 +76,7 @@ export default function ClientScanner() {
     
     try {
       setLoading(true);
-      const response = await apiRequest("GET", `/api/client/verify-qr/${code}`);
+      const response = await fetch(`/api/payment-qr/${code}`);
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -85,12 +86,6 @@ export default function ClientScanner() {
       const data = await response.json();
       setPaymentData(data);
       setScanning(false);
-      
-      toast({
-        title: "QR Code válido",
-        description: `Código de ${data.merchant_name} - ${formatCurrency(data.amount)}`,
-      });
-      
     } catch (error: any) {
       toast({
         title: "Erro ao ler QR Code",
@@ -407,9 +402,11 @@ export default function ClientScanner() {
   };
 
   return (
-    <div className="container mx-auto p-4 max-w-md">
-      <h1 className="text-2xl font-bold mb-6">Pagar com QR Code</h1>
-      {renderContent()}
-    </div>
+    <DashboardLayout title="Pagar com QR Code" type="client">
+      <div className="container mx-auto p-4 max-w-md">
+        <h1 className="text-2xl font-bold mb-6">Pagar com QR Code</h1>
+        {renderContent()}
+      </div>
+    </DashboardLayout>
   );
 }

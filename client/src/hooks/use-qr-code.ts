@@ -22,7 +22,7 @@ export function useQRCode({ onSuccess, onError }: UseQRCodeProps = {}) {
   const generateQRCode = useCallback(async (amount: number, description?: string) => {
     setLoading(true);
     try {
-      const response = await apiRequest('POST', '/api/client/qr-code/generate', {
+      const response = await apiRequest('POST', '/api/merchant/qrcode', {
         amount,
         description,
       });

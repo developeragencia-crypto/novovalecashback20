@@ -6,8 +6,8 @@ export default function WelcomePage() {
   const [_, setLocation] = useLocation();
 
   const handleComplete = () => {
-    // Redirecionar para auth após completar as telas de boas-vindas
-    setLocation('/auth');
+    // Redirecionar para login após completar as telas de boas-vindas
+    setLocation('/login');
   };
 
   return (

@@ -39,15 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   useEffect(() => {
-    let isSubscribed = true;
-    
     async function loadUser() {
-      if (!isSubscribed) return;
-      
       try {
-        // Primeiro verifica dados armazenados localmente
+        // Tentar carregar do localStorage primeiro
         const storedUser = getUserData();
-        if (storedUser && storedUser.expiresAt && storedUser.expiresAt > Date.now()) {
+        if (storedUser) {
+          console.log('Dados encontrados no localStorage:', storedUser);
           setUser({
             id: storedUser.id,
             name: storedUser.name,
@@ -56,62 +53,91 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             photo: storedUser.photo,
             status: 'active'
           });
-          setLoading(false);
-          return;
         }
         
-        // Se não há dados locais válidos, verifica com o servidor
+        console.log('Carregando dados do usuário...');
         const response = await fetch('/api/auth/me', {
-          credentials: 'include'
+          credentials: 'include',
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
         });
         
-        if (!isSubscribed) return;
+        console.log('Resposta da API:', response.status);
         
         if (response.ok) {
           const userData = await response.json();
+          console.log('Usuário carregado:', userData);
           setUser(userData);
+          
+          // Salvar no localStorage para uso futuro
           saveUserData({
             id: userData.id,
             name: userData.name,
             email: userData.email,
             type: userData.type,
             photo: userData.photo,
-            expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 7 // 7 dias
+            expiresAt: Date.now() + 1000 * 60 * 60 * 24 // 24 horas
           });
-        } else {
-          // Só limpa dados se a resposta for 401 (não autenticado)
-          if (response.status === 401) {
-            setUser(null);
-            clearUserData();
+        } else if (response.status === 401 && user) {
+          // Se recebermos 401 mas tínhamos um usuário antes, a sessão expirou
+          console.log('Sessão expirada');
+          clearUserData(); // Limpar localStorage
+          setUser(null);
+          navigate('/auth/login');
+          toast({
+            title: 'Sessão expirada',
+            description: 'Sua sessão expirou. Por favor, faça login novamente.',
+            variant: 'destructive',
+          });
+        } else if (response.status === 401 && !storedUser) {
+          // Se recebermos 401 e não tínhamos usuário local, o usuário nunca esteve logado
+          console.log('Não autenticado');
+          
+          // Verificar se estamos em uma página de convite que não requer autenticação
+          const currentPath = window.location.pathname;
+          const isPublicPage = 
+            currentPath.startsWith('/invite') || 
+            currentPath.startsWith('/convite') || 
+            currentPath.startsWith('/parceiro') || 
+            currentPath.startsWith('/como/te') ||
+            currentPath === '/convite/cliente' ||
+            currentPath === '/convite/lojista' ||
+            currentPath === '/welcome' ||
+            currentPath === '/welcome-static' ||
+            currentPath === '/welcome-force' ||
+            currentPath === '/welcome-simple' ||
+            currentPath === '/'; // Todas as rotas welcome e a raiz são públicas
+            
+          // Não redirecionamos se estivermos em uma página pública
+          if (!isPublicPage) {
+            console.log('Não está em página pública, redirecionando para login');
+            navigate('/auth/login');
+          } else {
+            console.log('Em página pública, ignorando redirecionamento');
           }
+          
+          setUser(null);
         }
       } catch (error) {
-        console.log("Erro na verificação de autenticação:", error);
-        // Em caso de erro de rede, mantém dados locais se válidos
-        const storedUser = getUserData();
-        if (storedUser && storedUser.expiresAt && storedUser.expiresAt > Date.now()) {
-          setUser({
-            id: storedUser.id,
-            name: storedUser.name,
-            email: storedUser.email,
-            type: storedUser.type as UserType,
-            photo: storedUser.photo,
-            status: 'active'
-          });
-        }
+        console.error('Failed to load user', error);
+        // Não limpar usuário em caso de erro de rede para permitir uso offline
       } finally {
-        if (isSubscribed) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     }
     
+    // Carrega o usuário imediatamente
     loadUser();
     
-    return () => {
-      isSubscribed = false;
-    };
-  }, []);
+    // E então periodicamente a cada 5 minutos (300000ms) para manter a sessão ativa
+    // Aumentamos o intervalo para evitar chamadas excessivas
+    const intervalId = setInterval(loadUser, 300000);
+    
+    // Limpar o intervalo quando o componente for desmontado
+    return () => clearInterval(intervalId);
+  }, [navigate, toast]); // Removido o 'user' das dependências para evitar atualizações excessivas
 
   const login = async (email: string, password: string, type: UserType) => {
     setLoading(true);
@@ -124,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({
           email,
           password,
-          userType: type,
+          type,
         }),
         credentials: 'include', // Importante para cookies de sessão
       });
@@ -144,16 +170,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: userData.email,
         type: userData.type,
         photo: userData.photo,
-        expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 7 // 7 dias
+        expiresAt: Date.now() + 1000 * 60 * 60 * 24 // 24 horas
       });
       
-      // Redirecionar imediatamente sem verificações adicionais
-      const userType = userData.type;
-      if (userType === 'client') {
+      // Redirect based on user type
+      if (type === 'client') {
         navigate('/client/dashboard');
-      } else if (userType === 'merchant') {
+      } else if (type === 'merchant') {
         navigate('/merchant/dashboard');
-      } else if (userType === 'admin') {
+      } else if (type === 'admin') {
         navigate('/admin/dashboard');
       }
       
@@ -286,6 +311,36 @@ export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
+  }
+  
+  // Se estivermos em desenvolvimento e o usuário for nulo, usar um usuário simulado
+  if (process.env.NODE_ENV === 'development' && !context.user) {
+    const path = window.location.pathname;
+    let userType: UserType | null = null;
+    
+    if (path.startsWith('/client')) {
+      userType = 'client';
+    } else if (path.startsWith('/merchant')) {
+      userType = 'merchant';
+    } else if (path.startsWith('/admin')) {
+      userType = 'admin';
+    }
+    
+    if (userType) {
+      // Usar contexto em cache se existir, caso contrário criar um novo
+      if (!simulatedContextCache[userType]) {
+        console.log(`[DEV MODE] Simulando usuário tipo: ${userType}`);
+        
+        simulatedContextCache[userType] = {
+          ...context,
+          user: mockUserCache[userType],
+          isAuthenticated: true,
+          userType
+        };
+      }
+      
+      return simulatedContextCache[userType] as AuthContextType;
+    }
   }
   
   return context;

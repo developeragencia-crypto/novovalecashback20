@@ -20,7 +20,7 @@ import {
   Smartphone
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import logoPath from '@assets/LOGO-VALE-CASHBACK.SEM-FUNDO.png';
+import logoPath from '@/assets/vale-cashback-logo.png';
 
 // Animações e estilos personalizados
 const customStyles = `
@@ -314,7 +314,11 @@ export default function WelcomeEnhancedPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="pulse">
-          <img src={logoPath} alt="Vale Cashback" className="h-20 w-auto" />
+          <img 
+            src={logoPath} 
+            alt="Vale Cashback Logo" 
+            className="h-24 w-24 object-contain"
+          />
         </div>
       </div>
     );
@@ -334,7 +338,11 @@ export default function WelcomeEnhancedPage() {
             transition={{ duration: 0.6 }}
             className="floating"
           >
-            <img src={logoPath} alt="Vale Cashback" className="h-16 md:h-20 w-auto" />
+            <img 
+              src={logoPath} 
+              alt="Vale Cashback Logo" 
+              className="h-20 md:h-24 w-20 md:w-24 object-contain"
+            />
           </motion.div>
         </div>
 

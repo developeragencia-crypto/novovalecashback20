@@ -31,8 +31,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'wouter';
 import { useTranslation } from '@/hooks/use-translation';
-import logoImage from "@assets/LOGO-VALE-CASHBACK.SEM-FUNDO.png";
-import cashbankImage from "@assets/image_1747674179202.png";
+import logoPath from '@/assets/vale-cashback-logo.png';
 
 export default function WelcomeStaticPage() {
   const [_, setLocation] = useLocation();
@@ -658,10 +657,8 @@ export default function WelcomeStaticPage() {
               }}
               className="flex flex-col items-center"
             >
-              <motion.img 
-                src={logoImage} 
-                alt="Vale Cashback" 
-                className="h-20 sm:h-28 mb-2"
+              <motion.div 
+                className="flex items-center justify-center mb-2 mx-auto"
                 whileHover={{ 
                   scale: 1.05,
                   transition: { duration: 0.2 }
@@ -676,7 +673,13 @@ export default function WelcomeStaticPage() {
                   duration: 0.8,
                   filter: { duration: 2, repeat: Infinity, repeatType: "reverse" }
                 }}
-              />
+              >
+                <img 
+                  src={logoPath} 
+                  alt="Vale Cashback Logo" 
+                  className="h-20 sm:h-28 w-20 sm:w-28 object-contain"
+                />
+              </motion.div>
               <motion.div 
                 className="text-gray-600 text-sm font-medium"
                 initial={{ opacity: 0 }}

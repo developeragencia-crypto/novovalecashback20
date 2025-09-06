@@ -29,18 +29,16 @@ import {
 // Definir schema com mensagens traduzidas
 function getClientFormSchema(t: any) {
   return z.object({
-    name: z.string().min(3, { message: "Nome deve ter pelo menos 3 caracteres" }),
-    email: z.string().email({ message: "Email inválido" }),
-    phone: z.string().optional().refine((val) => !val || val.length >= 10, {
-      message: "Telefone deve ter pelo menos 10 dígitos"
-    }),
+    name: z.string().min(3, { message: t('validation.nameTooShort') }),
+    email: z.string().email({ message: t('errors.invalidEmail') }),
+    phone: z.string().min(10, { message: t('validation.invalidPhone') }).optional(),
     invitationCode: z.string().optional(),
-    securityQuestion: z.string().min(1, { message: "Selecione uma pergunta de segurança" }),
-    securityAnswer: z.string().min(2, { message: "Forneça uma resposta de segurança" }),
-    password: z.string().min(6, { message: "Senha deve ter pelo menos 6 caracteres" }),
-    confirmPassword: z.string().min(6, { message: "Confirmação deve ter pelo menos 6 caracteres" }),
+    securityQuestion: z.string().min(1, { message: t('validation.selectSecurityQuestion') }),
+    securityAnswer: z.string().min(2, { message: t('validation.provideSecurityAnswer') }),
+    password: z.string().min(6, { message: t('errors.passwordLength') }),
+    confirmPassword: z.string().min(6, { message: t('errors.passwordLength') }),
   }).refine((data) => data.password === data.confirmPassword, {
-    message: "Senhas não coincidem",
+    message: t('validation.passwordMismatch'),
     path: ["confirmPassword"],
   });
 }
@@ -48,21 +46,19 @@ function getClientFormSchema(t: any) {
 // Definir schema do lojista com mensagens traduzidas
 function getMerchantFormSchema(t: any) {
   return z.object({
-    name: z.string().min(3, { message: "Nome deve ter pelo menos 3 caracteres" }),
-    email: z.string().email({ message: "Email inválido" }),
-    phone: z.string().optional().refine((val) => !val || val.length >= 10, {
-      message: "Telefone deve ter pelo menos 10 dígitos"
-    }),
-    storeName: z.string().min(3, { message: "Nome da loja deve ter pelo menos 3 caracteres" }),
-    category: z.string().min(1, { message: "Selecione uma categoria" }),
+    name: z.string().min(3, { message: t('validation.nameTooShort') }),
+    email: z.string().email({ message: t('errors.invalidEmail') }),
+    phone: z.string().min(10, { message: t('validation.invalidPhone') }).optional(),
+    storeName: z.string().min(3, { message: t('validation.storeNameTooShort') }),
+    category: z.string().min(1, { message: t('validation.selectCategory') }),
     companyLogo: z.any().optional(),
     invitationCode: z.string().optional(),
-    securityQuestion: z.string().min(1, { message: "Selecione uma pergunta de segurança" }),
-    securityAnswer: z.string().min(2, { message: "Forneça uma resposta de segurança" }),
-    password: z.string().min(6, { message: "Senha deve ter pelo menos 6 caracteres" }),
-    confirmPassword: z.string().min(6, { message: "Confirmação deve ter pelo menos 6 caracteres" }),
+    securityQuestion: z.string().min(1, { message: t('validation.selectSecurityQuestion') }),
+    securityAnswer: z.string().min(2, { message: t('validation.provideSecurityAnswer') }),
+    password: z.string().min(6, { message: t('errors.passwordLength') }),
+    confirmPassword: z.string().min(6, { message: t('errors.passwordLength') }),
   }).refine((data) => data.password === data.confirmPassword, {
-    message: "Senhas não coincidem",
+    message: t('validation.passwordMismatch'),
     path: ["confirmPassword"],
   });
 }
@@ -109,7 +105,7 @@ export default function Register() {
 
   // Função para verificar se telefone já existe
   const checkPhoneAvailability = useCallback(async (phone: string) => {
-    if (!phone || phone.trim().length < 10) {
+    if (!phone || phone.length < 10) {
       setPhoneStatus('idle');
       return;
     }
@@ -119,17 +115,14 @@ export default function Register() {
       const response = await fetch('/api/auth/check-phone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim() }),
+        body: JSON.stringify({ phone }),
       });
       
       if (response.ok) {
         const data = await response.json();
         setPhoneStatus(data.exists ? 'taken' : 'available');
-      } else {
-        setPhoneStatus('idle');
       }
     } catch (error) {
-      console.error('Erro ao verificar telefone:', error);
       setPhoneStatus('idle');
     }
   }, []);

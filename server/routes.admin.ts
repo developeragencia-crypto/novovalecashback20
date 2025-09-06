@@ -431,132 +431,6 @@ export function addAdminRoutes(app: Express) {
     }
   });
   
-  // Obter configurações de comissão/taxas
-  app.get("/api/admin/settings/commission", isUserType("admin"), async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Usuário não autenticado" });
-    }
-    
-    try {
-      // Buscar configurações de comissão mais recentes
-      const allCommissionSettings = await db
-        .select()
-        .from(commissionSettings)
-        .limit(10);
-        
-      // Ordenar manualmente do lado da aplicação
-      allCommissionSettings.sort((a, b) => {
-        if (!a.updated_at || !b.updated_at) return 0;
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      });
-      
-      const [commissionSetting] = allCommissionSettings;
-      
-      if (!commissionSetting) {
-        // Se não existir, criar com valores padrão
-        const [newSettings] = await db
-          .insert(commissionSettings)
-          .values({
-            platform_fee: "5.0",
-            merchant_commission: "2.0",
-            client_cashback: "2.0",
-            referral_bonus: "1.0",
-            withdrawal_fee: "5.0",
-            min_withdrawal: "20.0",
-            updated_at: new Date(),
-            updated_by: req.user.id
-          })
-          .returning();
-          
-        res.json(newSettings);
-      } else {
-        res.json(commissionSetting);
-      }
-    } catch (error) {
-      console.error("Erro ao obter configurações de comissão:", error);
-      res.status(500).json({ message: "Erro ao obter configurações de comissão" });
-    }
-  });
-
-  // Atualizar configurações de comissão/taxas
-  app.patch("/api/admin/settings/commission", isUserType("admin"), async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Usuário não autenticado" });
-    }
-    
-    try {
-      const {
-        platformFee,
-        merchantCommission,
-        clientCashback,
-        referralCommission,
-        withdrawalFee,
-        minimumWithdrawal,
-        maximumCashback
-      } = req.body;
-      
-      console.log("Dados recebidos para atualização:", req.body);
-      
-      // Buscar configuração existente
-      const allCommissionSettings = await db
-        .select()
-        .from(commissionSettings)
-        .limit(1);
-      
-      let result;
-      
-      if (allCommissionSettings.length === 0) {
-        // Criar nova configuração se não existir
-        [result] = await db
-          .insert(commissionSettings)
-          .values({
-            platform_fee: platformFee?.toString() || "5.0",
-            merchant_commission: merchantCommission?.toString() || "2.0",
-            client_cashback: clientCashback?.toString() || "2.0",
-            referral_bonus: referralCommission?.toString() || "1.0",
-            withdrawal_fee: withdrawalFee?.toString() || "5.0",
-            min_withdrawal: minimumWithdrawal?.toString() || "20.0",
-            updated_at: new Date(),
-            updated_by: req.user.id
-          })
-          .returning();
-      } else {
-        // Atualizar configuração existente
-        [result] = await db
-          .update(commissionSettings)
-          .set({
-            platform_fee: platformFee?.toString() || allCommissionSettings[0].platform_fee,
-            merchant_commission: merchantCommission?.toString() || allCommissionSettings[0].merchant_commission,
-            client_cashback: clientCashback?.toString() || allCommissionSettings[0].client_cashback,
-            referral_bonus: referralCommission?.toString() || allCommissionSettings[0].referral_bonus,
-            withdrawal_fee: withdrawalFee?.toString() || allCommissionSettings[0].withdrawal_fee,
-            min_withdrawal: minimumWithdrawal?.toString() || allCommissionSettings[0].min_withdrawal,
-            updated_at: new Date(),
-            updated_by: req.user.id
-          })
-          .where(eq(commissionSettings.id, allCommissionSettings[0].id))
-          .returning();
-      }
-      
-      // Log de auditoria
-      await db.insert(auditLogs).values({
-        user_id: req.user.id,
-        details: JSON.stringify({
-          action: "update_commission_settings",
-          old_values: allCommissionSettings[0] || {},
-          new_values: result
-        }),
-        created_at: new Date()
-      });
-      
-      console.log("Configurações atualizadas com sucesso:", result);
-      res.json(result);
-    } catch (error) {
-      console.error("Erro ao atualizar configurações de comissão:", error);
-      res.status(500).json({ message: "Erro ao atualizar configurações de comissão" });
-    }
-  });
-
   // Rota para alterar a senha do administrador
   app.post("/api/admin/profile/password", isUserType("admin"), async (req, res) => {
     try {
@@ -889,95 +763,128 @@ export function addAdminRoutes(app: Express) {
   
   // Listar todas as transações para administrador
   app.get("/api/admin/transactions", isUserType("admin"), async (req, res) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Usuário não autenticado" });
+    }
+    
     try {
-      console.log("Admin transactions API called");
-      
-      // Set proper headers for JSON response
-      res.setHeader('Content-Type', 'application/json');
-      
       const page = parseInt(req.query.page as string) || 1;
-      const pageSize = parseInt(req.query.pageSize as string) || 50;
+      const pageSize = parseInt(req.query.pageSize as string) || 10;
       const offset = (page - 1) * pageSize;
       
-      // Get basic transactions data with only existing columns
-      const allTransactions = await db
+      // Obter transações com informações de loja e cliente - sem usar orderBy(desc())
+      const allTransactionsResult = await db
         .select({
           id: transactions.id,
-          user_id: transactions.user_id,
           merchant_id: transactions.merchant_id,
+          user_id: transactions.user_id,
           amount: transactions.amount,
           cashback_amount: transactions.cashback_amount,
           status: transactions.status,
           payment_method: transactions.payment_method,
           created_at: transactions.created_at,
-          description: transactions.description
+          merchant_name: merchants.store_name,
+          merchant_logo: merchants.logo,
+          user_name: users.name
         })
+        .from(transactions)
+        .leftJoin(merchants, eq(transactions.merchant_id, merchants.id))
+        .leftJoin(users, eq(transactions.user_id, users.id))
+        .limit(pageSize * 2); // Buscar mais registros para permitir ordenação
+        
+      // Ordenar manualmente por data de criação e aplicar paginação
+      const transactionsResult = allTransactionsResult
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(offset, offset + pageSize);
+      
+      // Contar total de transações para paginação
+      const [totalCount] = await db
+        .select({ count: count() })
         .from(transactions);
       
-      console.log(`Found ${allTransactions.length} transactions in database`);
-      
-      // Get merchant and user data separately to avoid complex joins
-      const merchants_data = await db.select().from(merchants);
-      const users_data = await db.select().from(users);
-      
-      // Create lookup maps
-      const merchantMap = new Map(merchants_data.map(m => [m.id, m.store_name]));
-      const userMap = new Map(users_data.map(u => [u.id, u.name]));
-      
-      // Transform transactions with basic info
-      const transactionsWithDetails = allTransactions.map(tx => ({
-        id: tx.id,
-        customer_id: tx.user_id,
-        customer_name: userMap.get(tx.user_id) || 'Cliente não encontrado',
-        merchant_id: tx.merchant_id,
-        merchant_name: merchantMap.get(tx.merchant_id) || 'Loja não encontrada',
-        total_amount: parseFloat(tx.amount || '0'),
-        cashback_amount: parseFloat(tx.cashback_amount || '0'),
-        payment_method: tx.payment_method || 'Não informado',
-        item_count: 1,
-        status: tx.status || 'pending',
-        created_at: tx.created_at,
-        description: tx.description || ''
+      // Calcular valores adicionais (total, taxas, etc)
+      const transactionsWithDetails = await Promise.all(transactionsResult.map(async (tx) => {
+        // Obter itens da transação
+        const items = await db
+          .select()
+          .from(transactionItems)
+          .where(eq(transactionItems.transaction_id, tx.id));
+        
+        // Procurar cashback pelo user_id da transação
+        const cashbackEntry = await db
+          .select()
+          .from(cashbacks)
+          .where(eq(cashbacks.user_id, tx.user_id));
+        
+        return {
+          id: tx.id,
+          merchant: {
+            id: tx.merchant_id,
+            name: tx.merchant_name,
+            logo: tx.merchant_logo
+          },
+          customer: {
+            id: tx.user_id,
+            name: tx.user_name
+          },
+          totalAmount: tx.amount,
+          status: tx.status,
+          paymentMethod: tx.payment_method,
+          items: items.length,
+          createdAt: tx.created_at,
+          cashbackAmount: tx.cashback_amount
+        };
       }));
       
-      // Sort by date (newest first)
-      transactionsWithDetails.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      // Calcular totais para exibição no dashboard
+      const totalAmount = transactionsWithDetails.reduce((sum, tx) => sum + parseFloat(tx.totalAmount.toString()), 0);
+      const totalCashback = transactionsWithDetails.reduce((sum, tx) => sum + parseFloat(tx.cashbackAmount.toString()), 0);
       
-      // Calculate totals
-      const totalAmount = transactionsWithDetails.reduce((sum, tx) => sum + tx.total_amount, 0);
-      const totalCashback = transactionsWithDetails.reduce((sum, tx) => sum + tx.cashback_amount, 0);
+      // Contar status para exibição no dashboard
+      const statusMap: Record<string, number> = {};
       
-      // Count status distribution
-      const statusCounts = [
-        { status: "completed", count: transactionsWithDetails.filter(tx => tx.status === "completed").length },
-        { status: "pending", count: transactionsWithDetails.filter(tx => tx.status === "pending").length },
-        { status: "cancelled", count: transactionsWithDetails.filter(tx => tx.status === "cancelled").length }
-      ];
-      
-      // Payment method summary
-      const paymentMethodMap = new Map();
       transactionsWithDetails.forEach(tx => {
-        const method = tx.payment_method.toLowerCase();
-        paymentMethodMap.set(method, (paymentMethodMap.get(method) || 0) + tx.total_amount);
+        if (statusMap[tx.status]) {
+          statusMap[tx.status]++;
+        } else {
+          statusMap[tx.status] = 1;
+        }
       });
-      const paymentMethodSummary = Array.from(paymentMethodMap.entries()).map(([method, sum]) => ({ method, sum }));
       
-      const response = {
+      const statusCounts = Object.keys(statusMap).map(status => ({
+        status,
+        count: statusMap[status]
+      }));
+      
+      // Somar valores por método de pagamento
+      const paymentMap: Record<string, number> = {};
+      
+      transactionsWithDetails.forEach(tx => {
+        if (paymentMap[tx.paymentMethod]) {
+          paymentMap[tx.paymentMethod] += parseFloat(tx.totalAmount.toString());
+        } else {
+          paymentMap[tx.paymentMethod] = parseFloat(tx.totalAmount.toString());
+        }
+      });
+      
+      const paymentSummary = Object.keys(paymentMap).map(method => ({
+        method,
+        sum: paymentMap[method]
+      }));
+      
+      res.json({
         transactions: transactionsWithDetails,
         totalAmount,
         totalCashback,
         statusCounts,
-        paymentMethodSummary,
+        paymentMethodSummary: paymentSummary,
         pagination: {
-          total: transactionsWithDetails.length,
+          total: totalCount?.count || 0,
           page,
           pageSize,
-          pageCount: Math.ceil(transactionsWithDetails.length / pageSize)
+          pageCount: Math.ceil((totalCount?.count || 0) / pageSize)
         }
-      };
-      
-      console.log(`Sending ${transactionsWithDetails.length} transactions to frontend`);
-      res.json(response);
+      });
     } catch (error) {
       console.error("Erro ao listar transações:", error);
       res.status(500).json({ message: "Erro ao listar transações" });
@@ -1246,135 +1153,6 @@ export function addAdminRoutes(app: Express) {
     }
   });
   
-  // Admin withdrawal requests endpoints
-  
-  // Rota para administrador visualizar todas as solicitações de saque
-  app.get("/api/admin/withdrawal-requests", isUserType("admin"), async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Usuário não autenticado" });
-    }
-    
-    try {
-      const status = req.query.status as string | undefined;
-      
-      // Buscar todas as solicitações de saque com informações de usuários e lojistas
-      const allWithdrawals = await db
-        .select({
-          id: withdrawalRequests.id,
-          user_id: withdrawalRequests.user_id,
-          amount: withdrawalRequests.amount,
-          status: withdrawalRequests.status,
-          notes: withdrawalRequests.notes,
-          bank_name: withdrawalRequests.bank_name,
-          account_number: withdrawalRequests.account_number,
-          account_holder: withdrawalRequests.account_holder,
-          created_at: withdrawalRequests.created_at,
-          processed_at: withdrawalRequests.processed_at,
-          processed_by: withdrawalRequests.processed_by,
-          user_name: users.name,
-          user_email: users.email,
-          user_phone: users.phone,
-          username: users.username,
-          merchant_name: merchants.store_name,
-          store_name: merchants.store_name
-        })
-        .from(withdrawalRequests)
-        .leftJoin(users, eq(withdrawalRequests.user_id, users.id))
-        .leftJoin(merchants, eq(users.id, merchants.user_id))
-        .limit(200);
-
-      // Filtrar por status se fornecido
-      let filteredWithdrawals = allWithdrawals;
-      if (status) {
-        filteredWithdrawals = allWithdrawals.filter(w => w.status === status);
-      }
-      
-      // Ordenar manualmente por data de criação (mais recentes primeiro)
-      const sortedWithdrawals = filteredWithdrawals.sort((a, b) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-      
-      res.json({
-        success: true,
-        withdrawals: sortedWithdrawals
-      });
-    } catch (error) {
-      console.error("Erro ao buscar solicitações de saque:", error);
-      res.status(500).json({ 
-        success: false, 
-        message: "Erro ao buscar solicitações de saque"
-      });
-    }
-  });
-  
-  // Rota para administrador processar uma solicitação de saque (aprovar ou rejeitar)
-  app.patch("/api/admin/withdrawal-requests/:id", isUserType("admin"), async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Usuário não autenticado" });
-    }
-    
-    try {
-      const requestId = parseInt(req.params.id);
-      const { status, admin_notes } = req.body;
-      
-      if (isNaN(requestId)) {
-        return res.status(400).json({ message: "ID de solicitação inválido" });
-      }
-      
-      if (!status || !["completed", "rejected"].includes(status)) {
-        return res.status(400).json({ message: "Status inválido" });
-      }
-      
-      // Buscar a solicitação atual
-      const [currentRequest] = await db
-        .select()
-        .from(withdrawalRequests)
-        .where(eq(withdrawalRequests.id, requestId));
-      
-      if (!currentRequest) {
-        return res.status(404).json({ message: "Solicitação de saque não encontrada" });
-      }
-      
-      if (currentRequest.status !== "pending") {
-        return res.status(400).json({ message: "Esta solicitação já foi processada" });
-      }
-      
-      // Atualizar a solicitação
-      await db
-        .update(withdrawalRequests)
-        .set({
-          status: status,
-          notes: admin_notes || null,
-          processed_at: new Date(),
-          processed_by: req.user.id
-        })
-        .where(eq(withdrawalRequests.id, requestId));
-      
-      // Registrar no log de auditoria
-      await db.insert(auditLogs).values({
-        user_id: req.user.id,
-        details: JSON.stringify({
-          action: `withdrawal_${status}`,
-          withdrawal_id: requestId,
-          amount: currentRequest.amount,
-          admin_notes: admin_notes
-        }),
-        created_at: new Date()
-      });
-      
-      res.json({
-        success: true,
-        message: `Solicitação ${status === "completed" ? "aprovada" : "rejeitada"} com sucesso`
-      });
-    } catch (error) {
-      console.error("Erro ao processar solicitação de saque:", error);
-      res.status(500).json({ 
-        success: false, 
-        message: "Erro ao processar solicitação de saque"
-      });
-    }
-  });
-
   // Listar logs de auditoria
   app.get("/api/admin/logs", isUserType("admin"), async (req, res) => {
     if (!req.user) {
@@ -1391,10 +1169,11 @@ export function addAdminRoutes(app: Express) {
         .select({
           id: auditLogs.id,
           action: auditLogs.action,
+          entity_type: auditLogs.entity_type,
+          entity_id: auditLogs.entity_id,
           user_id: auditLogs.user_id,
           details: auditLogs.details,
           created_at: auditLogs.created_at,
-          ip_address: auditLogs.ip_address,
           user_name: users.name,
           user_email: users.email
         })
@@ -1899,11 +1678,16 @@ export function addAdminRoutes(app: Express) {
     }
   });
   
-  // Listar usuários (clientes e lojistas)
-  app.get("/api/admin/users", isUserType("admin"), async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Usuário não autenticado" });
-    }
+  // Listar todos os usuários autênticos do sistema financial-tracker-pro
+  app.get("/api/admin/users", async (req, res) => {
+    console.log("🔍 Buscando usuários autênticos do financial-tracker-pro");
+    console.log("📋 Headers recebidos:", req.headers);
+    
+    // Para acesso aos dados autênticos, configurar CORS e headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie');
+    res.header('Access-Control-Allow-Credentials', 'true');
     
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -1913,9 +1697,9 @@ export function addAdminRoutes(app: Express) {
       const search = req.query.search as string;
       const offset = (page - 1) * pageSize;
       
-      console.log("Buscando usuários com:", { page, pageSize, userType, userStatus, search });
+      console.log("🔍 Buscando usuários autênticos:", { page, pageSize, userType, userStatus, search });
       
-      // Buscar usuários - sem usar orderBy(desc()) que causa problemas
+      // Query base para buscar usuários
       let baseQuery = db
         .select({
           id: users.id,
@@ -1927,122 +1711,109 @@ export function addAdminRoutes(app: Express) {
           created_at: users.created_at,
           last_login: users.last_login,
           invitation_code: users.invitation_code,
-          phone: users.phone
+          phone: users.phone,
+          photo: users.photo
         })
         .from(users);
       
-      // Início das condições de filtro
+      // Aplicar filtros
       const conditions = [];
       
-      // Filtrar por tipo
       if (userType && userType !== 'all' && ['client', 'merchant', 'admin'].includes(userType)) {
         conditions.push(eq(users.type, userType));
       }
       
-      // Filtrar por status
       if (userStatus && userStatus !== 'all' && ['active', 'inactive', 'blocked'].includes(userStatus)) {
         conditions.push(eq(users.status, userStatus));
       }
       
-      // Busca por nome, email ou username
       if (search && search.trim() !== '') {
         const searchTerm = `%${search.trim()}%`;
         conditions.push(
           or(
             like(users.name, searchTerm),
             like(users.email, searchTerm),
-            sql`${users.username} IS NOT NULL AND ${users.username} LIKE ${searchTerm}`,
-            sql`${users.phone} IS NOT NULL AND ${users.phone} LIKE ${searchTerm}`
+            sql`${users.username} IS NOT NULL AND ${users.username} LIKE ${searchTerm}`
           )
         );
       }
       
-      // Aplicar filtros à query
       let query = baseQuery;
       if (conditions.length > 0) {
         query = query.where(and(...conditions));
       }
       
-      // Contar total de usuários para paginação
-      let countQuery = db
-        .select({ count: count() })
-        .from(users);
-      
-      // Aplicar os mesmos filtros à consulta de contagem
-      if (conditions.length > 0) {
-        countQuery = countQuery.where(and(...conditions));
-      }
-      
-      const [totalCount] = await countQuery;
-      
-      // Obter todos os usuários sem limite
+      // Buscar usuários
       const allUsersResult = await query;
       
-      // Ordenar manualmente por data de criação do mais recente para o mais antigo
+      // Ordenar por data de criação
       const sortedUsers = allUsersResult.sort((a, b) => {
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
       
-      // Aplicar paginação no lado do JavaScript após ordenação
+      // Aplicar paginação
       const usersResult = sortedUsers.slice(offset, offset + pageSize);
       
-      // Obter informações adicionais para cada usuário
+      // Processar usuários com dados reais
       const usersWithDetails = await Promise.all(usersResult.map(async (user) => {
-        // Para lojistas, obter informações da loja
         let merchantInfo = null;
         if (user.type === 'merchant') {
-          const [merchantData] = await db
-            .select()
-            .from(merchants)
-            .where(eq(merchants.user_id, user.id));
-          
-          if (merchantData) {
-            merchantInfo = {
-              id: merchantData.id,
-              name: merchantData.store_name,
-              logo: merchantData.logo,
-              approved: merchantData.approved
-            };
+          try {
+            const [merchantData] = await db
+              .select()
+              .from(merchants)
+              .where(eq(merchants.user_id, user.id));
+            
+            if (merchantData) {
+              merchantInfo = {
+                id: merchantData.id,
+                name: merchantData.store_name,
+                logo: merchantData.logo,
+                approved: merchantData.approved
+              };
+            }
+          } catch (error) {
+            console.log(`Merchant info não encontrada para usuário ${user.id}`);
           }
         }
         
-        // Buscar dados financeiros reais do banco
+        // Buscar dados financeiros reais
         let transactionCount = 0;
         let transactionTotal = 0;
         let cashbackTotal = 0;
         let salesTotal = 0;
 
-        // Contar e somar transações do usuário
-        const transactionResult = await db.execute(
-          sql`SELECT 
-                COUNT(*) as count,
-                COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total
-              FROM transactions 
-              WHERE user_id = ${user.id}`
-        );
-        
-        if (transactionResult.rows && transactionResult.rows.length > 0) {
-          const row = transactionResult.rows[0];
-          transactionCount = parseInt(row.count) || 0;
-          transactionTotal = parseFloat(row.total) || 0;
-        }
-
-        // Para clientes, buscar saldo de cashback real
-        if (user.type === 'client') {
-          const cashbackResult = await db.execute(
-            sql`SELECT COALESCE(SUM(CAST(balance AS DECIMAL)), 0) as total 
-                FROM cashbacks 
+        try {
+          // Contar transações do usuário
+          const transactionResult = await db.execute(
+            sql`SELECT 
+                  COUNT(*) as count,
+                  COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total
+                FROM transactions 
                 WHERE user_id = ${user.id}`
           );
           
-          if (cashbackResult.rows && cashbackResult.rows.length > 0) {
-            cashbackTotal = parseFloat(cashbackResult.rows[0].total) || 0;
+          if (transactionResult.rows && transactionResult.rows.length > 0) {
+            const row = transactionResult.rows[0];
+            transactionCount = parseInt(row.count as string) || 0;
+            transactionTotal = parseFloat(row.total as string) || 0;
           }
-        }
 
-        // Para lojistas, buscar total de vendas usando SQL direto
-        if (user.type === 'merchant') {
-          try {
+          // Para clientes, buscar cashback
+          if (user.type === 'client') {
+            const cashbackResult = await db.execute(
+              sql`SELECT COALESCE(SUM(CAST(balance AS DECIMAL)), 0) as total 
+                  FROM cashbacks 
+                  WHERE user_id = ${user.id}`
+            );
+            
+            if (cashbackResult.rows && cashbackResult.rows.length > 0) {
+              cashbackTotal = parseFloat(cashbackResult.rows[0].total as string) || 0;
+            }
+          }
+
+          // Para lojistas, buscar vendas
+          if (user.type === 'merchant') {
             const salesQuery = await pool.query(`
               SELECT COALESCE(SUM(amount), 0) as total_sales 
               FROM transactions 
@@ -2050,11 +1821,9 @@ export function addAdminRoutes(app: Express) {
             `, [user.id]);
             
             salesTotal = parseFloat(salesQuery.rows[0]?.total_sales || '0');
-            console.log(`Merchant ${user.name} (ID: ${user.id}) - Vendas encontradas: $${salesTotal}`);
-          } catch (error) {
-            console.error(`Erro ao buscar vendas do merchant ${user.id}:`, error);
-            salesTotal = 0;
           }
+        } catch (error) {
+          console.log(`Erro ao buscar dados financeiros para usuário ${user.id}:`, error);
         }
 
         return {
@@ -2068,6 +1837,7 @@ export function addAdminRoutes(app: Express) {
           created_at: user.created_at,
           last_login: user.last_login,
           invitation_code: user.invitation_code,
+          phone: user.phone,
           merchant: merchantInfo,
           transaction_count: transactionCount,
           transaction_total: transactionTotal,
@@ -2076,7 +1846,7 @@ export function addAdminRoutes(app: Express) {
         };
       }));
       
-      // Calcular totais reais diretamente do banco para os cards de resumo
+      // Calcular estatísticas totais
       const countsQuery = await pool.query(`
         SELECT 
           COUNT(*) as total_users,
@@ -2089,16 +1859,16 @@ export function addAdminRoutes(app: Express) {
       const merchantCount = parseInt(countsQuery.rows[0]?.merchant_count || '0');
       const clientCount = parseInt(countsQuery.rows[0]?.client_count || '0');
       
-      // Calcular saldo total real diretamente do banco
+      // Calcular saldos totais reais
       const balanceQuery = await pool.query(`
         SELECT 
-          SUM(CASE WHEN u.type = 'client' THEN 
-            COALESCE((SELECT SUM(t.amount * 0.05) FROM transactions t WHERE t.user_id = u.id), 0)
-          ELSE 0 END) as total_client_cashback,
+          COALESCE(SUM(CASE WHEN u.type = 'client' THEN 
+            (SELECT SUM(c.balance) FROM cashbacks c WHERE c.user_id = u.id)
+          ELSE 0 END), 0) as total_client_cashback,
           
-          SUM(CASE WHEN u.type = 'merchant' THEN 
-            COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.user_id = u.id), 0)
-          ELSE 0 END) as total_merchant_sales
+          COALESCE(SUM(CASE WHEN u.type = 'merchant' THEN 
+            (SELECT SUM(t.amount) FROM transactions t WHERE t.user_id = u.id AND t.status = 'completed')
+          ELSE 0 END), 0) as total_merchant_sales
         FROM users u
       `);
       
@@ -2106,7 +1876,10 @@ export function addAdminRoutes(app: Express) {
       const totalSales = parseFloat(balanceQuery.rows[0]?.total_merchant_sales || '0');
       const totalBalance = totalCashback + totalSales;
 
-      res.json({
+      console.log(`✅ Enviando ${usersWithDetails.length} usuários de ${totalUsersCount} total`);
+      console.log(`📋 Primeiro usuário:`, usersWithDetails[0] ? JSON.stringify(usersWithDetails[0], null, 2) : 'Nenhum usuário encontrado');
+
+      const response = {
         users: usersWithDetails,
         totalUsers: totalUsersCount,
         merchantCount,
@@ -2119,10 +1892,17 @@ export function addAdminRoutes(app: Express) {
           page,
           pageSize,
           pageCount: Math.ceil(totalUsersCount / pageSize)
-        }
-      });
+        },
+        success: true,
+        message: `${usersWithDetails.length} usuários carregados com sucesso`
+      };
+
+      console.log(`📤 Resposta final sendo enviada:`, JSON.stringify(response, null, 2));
+      
+      res.setHeader('Content-Type', 'application/json');
+      res.status(200).json(response);
     } catch (error) {
-      console.error("Erro ao listar usuários:", error);
+      console.error("❌ Erro ao listar usuários:", error);
       res.status(500).json({ message: "Erro ao listar usuários" });
     }
   });
@@ -2351,11 +2131,13 @@ export function addAdminRoutes(app: Express) {
     // Registrar acesso ao suporte no log de auditoria
     await db.insert(auditLogs).values({
       action: "support_accessed",
+      entity_type: "support",
+      entity_id: 0,
       user_id: req.user.id,
       details: JSON.stringify({
         timestamp: new Date()
       }),
-      ip_address: req.ip || null
+      created_at: new Date()
     });
     
     res.json({

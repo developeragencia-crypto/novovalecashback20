@@ -89,17 +89,11 @@ const WithdrawalDetailsDialog = ({
     setOpen(false);
   };
   
-  // Formatar data de forma segura
+  // Formatar data
   const formatDate = (dateString: string) => {
     if (!dateString) return "N/A";
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return "Data inválida";
-      return format(date, "MM/dd/yyyy HH:mm", { locale: enUS });
-    } catch (error) {
-      console.error("Erro ao formatar data:", error);
-      return "Data inválida";
-    }
+    const date = new Date(dateString);
+    return format(date, "MM/dd/yyyy HH:mm", { locale: enUS });
   };
   
   return (
@@ -339,17 +333,10 @@ const AdminWithdrawals = () => {
     });
   };
   
-  // Formatar data de forma segura
+  // Formatar data
   const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A";
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return "Data inválida";
-      return format(date, "MM/dd/yyyy HH:mm", { locale: enUS });
-    } catch (error) {
-      console.error("Erro ao formatar data:", error);
-      return "Data inválida";
-    }
+    const date = new Date(dateString);
+    return format(date, "MM/dd/yyyy HH:mm", { locale: enUS });
   };
   
   // Renderizar conteúdo principal

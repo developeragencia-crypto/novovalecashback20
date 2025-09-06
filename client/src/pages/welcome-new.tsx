@@ -15,9 +15,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-// Importação de imagens usando urls relativas
-const logoImage = "/LOGO-VALE-CASHBACK.SEM-FUNDO.png";
-const logoImageMobile = "/image_1747679209990.png";
+import logoPath from '@/assets/vale-cashback-logo.png';
 
 export default function WelcomeNewPage() {
   const [currentScreen, setCurrentScreen] = useState(0);
@@ -205,7 +203,7 @@ export default function WelcomeNewPage() {
           >
             <div className="relative glow-effect rounded-full">
               <motion.img 
-                src={logoImage} 
+                src={logoPath} 
                 alt="Vale Cashback" 
                 className="h-24 sm:h-28 object-contain relative z-10 drop-shadow-xl hidden sm:block"
                 animate={{ 
@@ -220,7 +218,7 @@ export default function WelcomeNewPage() {
                 }}
               />
               <motion.img 
-                src={logoImageMobile} 
+                src={logoPath} 
                 alt="Vale Cashback" 
                 className="h-20 object-contain relative z-10 drop-shadow-xl sm:hidden"
                 animate={{ 

@@ -16,14 +16,14 @@ export function isMobile(): boolean {
 }
 
 /**
- * Formata um valor para moeda dólar americano (USD)
+ * Formata um valor para moeda dólar (USD)
  * @param value Valor a ser formatado
  * @param showSymbol Se true, exibe o símbolo $ antes do valor (padrão: true)
- * @returns String formatada em dólar americano
+ * @returns String formatada em dólar
  */
 export function formatCurrency(value: number | string | null | undefined, showSymbol = true): string {
   if (value === null || value === undefined) {
-    return showSymbol ? '$0.00' : '0.00';
+    return showSymbol ? '$ 0.00' : '0.00';
   }
   
   let numValue: number;
@@ -37,90 +37,42 @@ export function formatCurrency(value: number | string | null | undefined, showSy
   }
   
   if (isNaN(numValue)) {
-    return showSymbol ? '$0.00' : '0.00';
+    return showSymbol ? '$ 0.00' : '0.00';
   }
   
   // Formatação para dólar americano com 2 casas decimais
-  const formattedValue = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(numValue);
-  
-  return showSymbol ? formattedValue : formattedValue.replace('$', '').trim();
+  const formattedValue = numValue.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+  return showSymbol ? `$ ${formattedValue}` : formattedValue;
 }
 
 /**
- * Formata uma data como string legível usando o padrão brasileiro
+ * Formata uma data como string legível usando o fuso horário dos EUA
  * @param date Data a ser formatada
  * @param showTime Se true, inclui o horário junto com a data
- * @returns String formatada com a data (e hora, se showTime=true) no formato brasileiro
+ * @returns String formatada com a data (e hora, se showTime=true) no formato dos EUA
  */
 export function formatDate(date: Date | string | null | undefined, showTime: boolean = true): string {
-  if (!date) return 'Data não informada';
+  if (!date) return 'N/A';
   
   try {
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     
-    // Verificar se a data é válida
-    if (isNaN(dateObj.getTime())) {
-      return 'Data inválida';
-    }
-    
-    // Opções de formatação para a data no formato brasileiro
+    // Opções de formatação para a data no formato dos EUA
     const options: Intl.DateTimeFormatOptions = {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-      timeZone: 'America/Sao_Paulo', // Fuso horário de São Paulo (BRT/BRST)
+      timeZone: 'America/New_York', // Fuso horário de Nova York (EST/EDT)
       ...(showTime && {
         hour: '2-digit',
         minute: '2-digit',
-        hour12: false // Formato 24h usado no Brasil
+        hour12: true // Formato AM/PM usado nos EUA
       })
     };
     
-    return dateObj.toLocaleDateString('pt-BR', options);
+    return dateObj.toLocaleDateString('en-US', options);
   } catch (error) {
     console.error("Error formatting date:", error);
-    return 'Data inválida';
-  }
-}
-
-/**
- * Formata data de transação de forma segura
- * @param dateString String da data vinda do servidor
- * @param format Formato de saída: 'short' (dd/MM) ou 'full' (dd/MM/yyyy às HH:mm)
- * @returns String formatada ou mensagem de erro
- */
-export function formatTransactionDate(dateString: string | null | undefined, format: 'short' | 'full' = 'short'): string {
-  if (!dateString) return 'Data não informada';
-  
-  try {
-    const date = new Date(dateString);
-    
-    // Verificar se a data é válida
-    if (isNaN(date.getTime())) {
-      return 'Data inválida';
-    }
-    
-    if (format === 'short') {
-      return date.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        timeZone: 'America/Sao_Paulo'
-      });
-    } else {
-      return date.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'America/Sao_Paulo'
-      }).replace(',', ' às');
-    }
-  } catch (error) {
-    console.error("Error formatting transaction date:", error);
-    return 'Data inválida';
+    return 'Invalid date';
   }
 }

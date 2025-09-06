@@ -37,11 +37,22 @@ export function DashboardLayout({
     if (title) {
       let translatedTitle = title;
       
-      // Verificações específicas para títulos que são palavras comuns
-      if (title === 'Referrals' || title === 'Indicações') {
-        translatedTitle = t('common.Referrals');
+      // Mapeamento direto de títulos específicos
+      const titleMappings: { [key: string]: string } = {
+        'Vendas': t('common.Vendas'),
+        'Registro de Vendas': t('common.Registro de Vendas'),
+        'Transações': t('common.Transações'),
+        'Histórico de Transações': t('common.Histórico de Transações'),
+        'Gerar QR Code': t('common.Gerar QR Code'),
+        'QR Code de Pagamento': t('common.QR Code de Pagamento'),
+        'Referrals': t('common.Referrals'),
+        'Indicações': t('common.Indicações')
+      };
+
+      // Usa o mapeamento direto se existir, caso contrário tenta as traduções padrão
+      if (titleMappings[title]) {
+        translatedTitle = titleMappings[title];
       } else {
-        // Tenta traduzir o título diretamente, ou como chave common.X, ou manter o original
         translatedTitle = 
           t(`common.${title}`) !== `common.${title}` ? t(`common.${title}`) : 
           t(title) !== title ? t(title) : 

@@ -19,7 +19,6 @@ const defaultLanguage: LanguageCode = 'pt';
 const TranslationContext = createContext<TranslationContextType | undefined>(undefined);
 
 const getNestedValue = (obj: any, path: string) => {
-  if (!path || typeof path !== 'string') return undefined;
   return path.split('.').reduce((prev, curr) => {
     return prev && prev[curr] !== undefined ? prev[curr] : undefined;
   }, obj);
@@ -64,8 +63,20 @@ export const TranslationProvider: React.FC<{ children: ReactNode }> = ({ childre
     const translatedValue = getNestedValue(translations[language], key);
     
     if (translatedValue === undefined) {
-      console.warn(`Translation key not found: ${key}`);
-      return key;
+      // Try direct key lookup for common translations
+      const directValue = translations[language][key as keyof typeof translations[typeof language]];
+      if (directValue && typeof directValue === 'string') {
+        return replaceParams(directValue, params);
+      }
+      
+      // For debugging, only warn in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`Translation key not found: ${key}`);
+      }
+      
+      // Return the key itself as fallback (without the path prefix)
+      const keyParts = key.split('.');
+      return keyParts[keyParts.length - 1];
     }
     
     if (typeof translatedValue === 'string') {

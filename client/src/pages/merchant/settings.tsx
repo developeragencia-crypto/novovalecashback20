@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, AlertCircle, Save, Trash2, Mail, Bell, Clock, CreditCard, Wallet, DollarSign, BadgePercent, Lock, Users } from "lucide-react";
+import { CheckCircle2, AlertCircle, Save, Trash2, Mail, Bell, Clock, CreditCard, Wallet, DollarSign, BadgePercent, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";

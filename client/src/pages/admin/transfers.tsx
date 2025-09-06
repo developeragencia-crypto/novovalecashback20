@@ -17,14 +17,6 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { 
   Calendar as CalendarIcon,
   Search,
@@ -44,8 +36,7 @@ import {
   CreditCard,
   Banknote,
   ArrowUp,
-  Mail,
-  X
+  Mail
 } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
 import { Calendar } from "@/components/ui/calendar";
@@ -96,8 +87,6 @@ export default function AdminTransfers() {
   const [activeTab, setActiveTab] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
   
   const { toast } = useToast();
   
@@ -191,8 +180,10 @@ export default function AdminTransfers() {
   
   // Visualizar detalhes da transferência
   const handleViewTransfer = (transfer: Transfer) => {
-    setSelectedTransfer(transfer);
-    setShowDetailsModal(true);
+    toast({
+      title: `Transferência #${transfer.id}`,
+      description: `Usuário: ${transfer.userName}, Valor: ${formatCurrency(transfer.amount)}`,
+    });
   };
   
   // Aprovar transferência
@@ -563,111 +554,6 @@ export default function AdminTransfers() {
           </CardContent>
         </Card>
       </Tabs>
-
-      {/* Transfer Details Modal */}
-      <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Detalhes da Transferência #{selectedTransfer?.id}</DialogTitle>
-            <DialogDescription>
-              Informações completas sobre a transferência selecionada
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedTransfer && (
-            <div className="space-y-6">
-              {/* Status and Basic Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Status</label>
-                  <div className="mt-1">
-                    <Badge variant={selectedTransfer.status === 'completed' ? 'default' : 
-                                   selectedTransfer.status === 'pending' ? 'secondary' : 'destructive'}>
-                      {selectedTransfer.status === 'completed' ? 'Concluída' :
-                       selectedTransfer.status === 'pending' ? 'Pendente' : 'Cancelada'}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Valor</label>
-                  <p className="mt-1 text-2xl font-bold">{formatCurrency(selectedTransfer.amount)}</p>
-                </div>
-              </div>
-
-              {/* User Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Usuário</label>
-                  <div className="mt-1 flex items-center">
-                    <User className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span>{selectedTransfer.userName}</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Email</label>
-                  <div className="mt-1 flex items-center">
-                    <Mail className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span>{selectedTransfer.userEmail || 'Não informado'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Transfer Type and Date */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Tipo</label>
-                  <div className="mt-1 flex items-center">
-                    <DollarSign className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span>
-                      {selectedTransfer.type === 'withdrawal' ? 'Saque' :
-                       selectedTransfer.type === 'cashback' ? 'Cashback' :
-                       selectedTransfer.type === 'referral' ? 'Indicação' :
-                       selectedTransfer.type === 'merchant_withdrawal' ? 'Saque Lojista' :
-                       selectedTransfer.type === 'client_withdrawal' ? 'Saque Cliente' :
-                       selectedTransfer.type === 'internal_transfer' ? 'Transferência Interna' :
-                       'Transferência Interna'}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Data</label>
-                  <div className="mt-1 flex items-center">
-                    <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span>
-                      {new Date(selectedTransfer.created_at).toLocaleDateString('pt-BR')} às{' '}
-                      {new Date(selectedTransfer.created_at).toLocaleTimeString('pt-BR')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Description */}
-              {selectedTransfer.description && (
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Descrição</label>
-                  <p className="mt-1 text-sm bg-muted p-3 rounded-md">{selectedTransfer.description}</p>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex justify-end space-x-2 pt-4 border-t">
-                <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
-                  Fechar
-                </Button>
-                {selectedTransfer.status === 'pending' && (
-                  <Button onClick={() => {
-                    handleApproveTransfer(selectedTransfer);
-                    setShowDetailsModal(false);
-                  }}>
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                    Aprovar
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </DashboardLayout>
   );
 }

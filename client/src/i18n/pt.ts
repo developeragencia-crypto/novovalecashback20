@@ -54,8 +54,8 @@ const pt = {
     active: "Ativo",
     pending: "Pendente",
     sending: "Enviando...",
-    emailNotProvided: "Não informado",
-    phoneNotProvided: "Não informado",
+    emailNotProvided: "Email não informado",
+    phoneNotProvided: "Telefone não informado",
     Referrals: "Indicações",
     Indicações: "Indicações",
     request: "solicitação",
@@ -73,13 +73,21 @@ const pt = {
     fillRequiredFields: "Por favor, preencha todos os campos obrigatórios.",
     requestProcessError: "Ocorreu um erro ao processar sua solicitação. Por favor, tente novamente.",
     operationPerformedSuccessfully: "Operação realizada com sucesso.",
-    processing: "Processando..."
+    processing: "Processando...",
+    Vendas: "Vendas",
+    "Registro de Vendas": "Registro de Vendas",
+    Transações: "Transações",
+    "Histórico de Transações": "Histórico de Transações",
+    "Gerar QR Code": "Gerar QR Code",
+    "QR Code de Pagamento": "QR Code de Pagamento"
   },
-  users: {
-    admin: "Administrador",
-    merchant: "Lojista",
-    client: "Cliente"
-  },
+  // Direct translations for page titles
+  "Vendas": "Vendas",
+  "Registro de Vendas": "Registro de Vendas",
+  "Transações": "Transações", 
+  "Histórico de Transações": "Histórico de Transações",
+  "Gerar QR Code": "Gerar QR Code",
+  "QR Code de Pagamento": "QR Code de Pagamento",
   auth: {
     email: "E-mail",
     password: "Senha",

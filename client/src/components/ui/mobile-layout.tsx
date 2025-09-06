@@ -55,7 +55,7 @@ const menuItems = {
     {
       path: '/merchant/payment-qr',
       icon: <QrCode className="h-5 w-5" />,
-      label: 'QR Code'
+      label: 'Gerar QR Code'
     },
     {
       path: '/merchant/transactions',
@@ -226,14 +226,14 @@ export function MobileLayout({ children, title, hideHeader = false }: MobileLayo
 
       {/* Main Content */}
       <main className={cn(
-        "flex-1 overflow-auto px-4 pb-20",
-        hideHeader ? "pt-2" : "py-4"
+        "flex-1 container overflow-auto px-2 max-w-full",
+        hideHeader ? "pt-2 pb-4" : "py-4"
       )}>
         {children}
       </main>
 
       {/* Bottom Navigation com grid fixo de 5 colunas e feedback visual melhorado */}
-      <nav className="fixed bottom-0 left-0 right-0 border-t bg-background shadow-[0_-2px_10px_rgba(0,0,0,0.1)] z-50">
+      <nav className="sticky bottom-0 border-t bg-background shadow-[0_-2px_10px_rgba(0,0,0,0.1)] w-full z-50">
         <div className="grid grid-cols-5 w-full py-2">
           {menuOptions.slice(0, 5).map((item, index) => {
             const isActive = location === item.path;

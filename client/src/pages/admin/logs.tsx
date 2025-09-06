@@ -290,25 +290,12 @@ export default function AdminLogs() {
     {
       header: "Data/Hora",
       accessorKey: "createdAt" as keyof LogEntry,
-      cell: (log: LogEntry) => {
-        const formatSafeDate = (dateString: string) => {
-          if (!dateString) return "Data não informada";
-          try {
-            const date = new Date(dateString);
-            if (isNaN(date.getTime())) return "Data inválida";
-            return date.toLocaleString("pt-BR");
-          } catch (error) {
-            return "Data inválida";
-          }
-        };
-        
-        return (
-          <div className="flex items-center">
-            <Clock className="h-4 w-4 text-muted-foreground mr-2" />
-            <span>{formatSafeDate(log.createdAt)}</span>
-          </div>
-        );
-      },
+      cell: (log: LogEntry) => (
+        <div className="flex items-center">
+          <Clock className="h-4 w-4 text-muted-foreground mr-2" />
+          <span>{new Date(log.createdAt).toLocaleString("pt-BR")}</span>
+        </div>
+      ),
     },
     {
       header: "Detalhes",
@@ -663,7 +650,7 @@ export default function AdminLogs() {
                   }}
                   onSelect={range => {
                     if (range?.from) {
-                      setDateRange({ from: range.from, to: range.to ?? null });
+                      setDateRange({ from: range.from, to: range.to });
                     }
                   }}
                   locale={ptBR}
@@ -741,7 +728,7 @@ export default function AdminLogs() {
                 pagination={{
                   pageIndex: page - 1,
                   pageSize: pageSize,
-                  pageCount: logData?.pagination?.pageCount || 1,
+                  pageCount: logData?.pageCount || 1,
                   onPageChange: (newPage) => setPage(newPage + 1),
                 }}
               />

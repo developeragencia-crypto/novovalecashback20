@@ -6,35 +6,31 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Loader2, ArrowUp, ArrowDown, Clock, Mail, Phone, User, Search, AlertCircle } from "lucide-react";
+import { Loader2, ArrowUp, ArrowDown, Clock, Mail, Phone, User, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCurrency } from "@/lib/utils";
 
-// Transfer interface matching database schema
+// Mock transfer data - would be replaced with real data from API
+const transferHistory = [
+  { id: 1, type: "sent", user: "maria@email.com", amount: 5.00, date: "10/07/2023", time: "14:30", description: "Ajuda com o almoço", status: "completed" },
+  { id: 2, type: "received", user: "carlos@email.com", amount: 10.00, date: "05/07/2023", time: "09:15", description: "Divisão de conta", status: "completed" },
+  { id: 3, type: "sent", user: "pedro@email.com", amount: 15.00, date: "01/07/2023", time: "18:22", description: "Pagamento", status: "completed" },
+  { id: 4, type: "received", user: "ana@email.com", amount: 7.50, date: "28/06/2023", time: "11:05", description: "Presente", status: "completed" },
+];
+
 interface Transfer {
   id: number;
-  from_user_id: number;
-  to_user_id: number;
-  amount: string;
-  description: string | null;
-  status: string;
-  created_at: string;
-  type: string | null;
-  from_user?: {
-    id: number;
-    name: string;
-    email: string;
-  };
-  to_user?: {
-    id: number;
-    name: string;
-    email: string;
-  };
+  type: 'outgoing' | 'incoming';
+  from: string;
+  to: string;
+  amount: number;
+  date: string;
+  description: string;
+  status: 'completed' | 'pending' | 'failed';
 }
 
 interface RecipientInfo {
@@ -57,28 +53,14 @@ export default function ClientTransfers() {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
-  // Query to get transfer history with error handling
-  const { data: transferData, isLoading, error } = useQuery<Transfer[]>({
+  // Query to get transfer history
+  const { data, isLoading } = useQuery<Transfer[]>({
     queryKey: ['/api/client/transfers'],
     queryFn: async () => {
-      try {
-        const response = await apiRequest("GET", "/api/client/transfers");
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        const data = await response.json();
-        return Array.isArray(data) ? data : [];
-      } catch (error) {
-        console.error("Erro ao buscar transferências:", error);
-        return [];
-      }
-    },
-    retry: false,
-    staleTime: 1000 * 60 * 5 // 5 minutes
+      const response = await apiRequest("GET", "/api/client/transfers");
+      return await response.json();
+    }
   });
-
-  // Dados seguros com fallback
-  const safeTransferData = transferData || [];
   
   // Buscar usuário quando o termo de busca muda
   useEffect(() => {
@@ -91,19 +73,11 @@ export default function ClientTransfers() {
     const searchUsers = async () => {
       setIsSearching(true);
       try {
-        console.log(`🔍 Buscando usuários: "${searchTerm}" por ${searchMethod}`);
         const response = await apiRequest("GET", `/api/client/search-users?search=${encodeURIComponent(searchTerm)}&method=${searchMethod}`);
-        
-        if (!response.ok) {
-          throw new Error(`Erro ${response.status}: ${response.statusText}`);
-        }
-        
         const data = await response.json();
-        console.log("📥 Resultados da busca:", data);
-        setSearchResults(Array.isArray(data) ? data : []);
+        setSearchResults(data ? [data] : []);
       } catch (error) {
         console.error("Erro ao buscar usuários:", error);
-        setSearchResults([]);
         toast({
           title: "Erro na busca",
           description: "Não foi possível buscar os usuários. Tente novamente.",
@@ -452,78 +426,47 @@ export default function ClientTransfers() {
               <div className="flex justify-center py-4">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : error ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
-                <AlertCircle className="h-12 w-12 text-muted-foreground" />
-                <div>
-                  <h3 className="font-medium">Erro ao carregar transferências</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Não foi possível conectar ao servidor
-                  </p>
-                </div>
-                <Button 
-                  variant="outline" 
-                  onClick={() => window.location.reload()}
-                  className="mt-4"
-                >
-                  Tentar novamente
-                </Button>
-              </div>
-            ) : safeTransferData.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
-                <div className="rounded-full bg-muted p-4">
-                  <ArrowUp className="h-8 w-8 text-muted-foreground" />
-                </div>
-                <div>
-                  <h3 className="font-medium">Nenhuma transferência encontrada</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Suas transferências aparecerão aqui quando você realizá-las
-                  </p>
-                </div>
-              </div>
             ) : (
               <div className="space-y-3">
-                {safeTransferData.map((transfer: Transfer) => {
-                  const transferDate = new Date(transfer.created_at);
-                  const otherUser = transfer.to_user || transfer.from_user;
-                  const isOutgoing = transfer.type === "outgoing" || transfer.from_user_id === 1; // TODO: Get current user ID from auth
-                  
-                  return (
-                    <div key={transfer.id} className="p-3 border rounded-lg">
-                      <div className="flex justify-between mb-1">
-                        <span className="font-medium">
-                          {isOutgoing ? "Enviado para: " : "Recebido de: "}
-                          {otherUser?.name || otherUser?.email || "Usuário"}
-                        </span>
-                        <span className={isOutgoing ? "text-red-600" : "text-green-600"}>
-                          {isOutgoing ? "-" : "+"}R$ {parseFloat(transfer.amount).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm text-muted-foreground">
-                        <div className="flex items-center">
-                          <Clock className="mr-1 h-3 w-3" />
-                          <span>
-                            {transferDate.toLocaleDateString('pt-BR')} às {transferDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        <span className="truncate max-w-[150px]">{transfer.description || "Sem descrição"}</span>
-                      </div>
-                      {transfer.status && (
-                        <div className="mt-2 flex justify-end">
-                          <Badge variant="outline" className={
-                            transfer.status === "completed" ? "bg-green-50 text-green-700 border-green-200" :
-                            transfer.status === "pending" ? "bg-yellow-50 text-yellow-700 border-yellow-200" : 
-                            "bg-blue-50 text-blue-700 border-blue-200"
-                          }>
-                            {transfer.status === "completed" ? "Concluída" : 
-                             transfer.status === "pending" ? "Pendente" : 
-                             transfer.status}
-                          </Badge>
-                        </div>
-                      )}
+                {(data || []).map((transfer: Transfer) => (
+                  <div key={transfer.id} className="p-3 border rounded-lg">
+                    <div className="flex justify-between mb-1">
+                      <span className="font-medium">
+                        {transfer.type === "outgoing" ? "Enviado para: " : "Recebido de: "}
+                        {transfer.type === "outgoing" ? transfer.to : transfer.from}
+                      </span>
+                      <span className={transfer.type === "outgoing" ? "text-red-600" : "text-green-600"}>
+                        {transfer.type === "outgoing" ? "-" : "+"}$ {transfer.amount.toFixed(2)}
+                      </span>
                     </div>
-                  );
-                })}
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <div className="flex items-center">
+                        <Clock className="mr-1 h-3 w-3" />
+                        <span>{transfer.date}</span>
+                      </div>
+                      <span className="truncate max-w-[150px]">{transfer.description}</span>
+                    </div>
+                    {transfer.status && (
+                      <div className="mt-2 flex justify-end">
+                        <Badge variant="outline" className={
+                          transfer.status === "completed" ? "bg-green-50 text-green-700 border-green-200" :
+                          transfer.status === "pending" ? "bg-yellow-50 text-yellow-700 border-yellow-200" : 
+                          "bg-blue-50 text-blue-700 border-blue-200"
+                        }>
+                          {transfer.status === "completed" ? "Concluída" : 
+                           transfer.status === "pending" ? "Pendente" : 
+                           transfer.status}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {(!data || data.length === 0) && (
+                  <div className="text-center py-4 text-muted-foreground">
+                    Nenhuma transferência encontrada.
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

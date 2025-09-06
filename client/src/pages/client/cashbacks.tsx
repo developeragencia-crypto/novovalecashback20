@@ -1,55 +1,81 @@
-import { useAuth } from "@/hooks/use-auth";
-import { useTranslation } from "@/hooks/use-translation";
-import { useMobile } from "@/hooks/use-mobile";
-import { useQuery } from "@tanstack/react-query";
-import { BadgeDollarSign, CreditCard, Clock, History, ShoppingBag } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { MobileCard } from "@/components/mobile-card";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { formatTransactionDate } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/use-auth";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileLayout } from "@/components/ui/mobile-layout";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { BadgeDollarSign, ChevronRight, CreditCard, Receipt, ShoppingBag } from "lucide-react";
+import { format } from "date-fns";
+import { Skeleton } from "@/components/ui/skeleton";
 
-interface CashbackData {
-  balance: string;
-  pending: string;
-  total_earned: string;
-  history: {
-    id: number;
-    amount: string;
-    cashback_amount: string;
-    description: string;
-    created_at: string;
-    store_name: string | null;
-  }[];
-  by_category: {
-    category: string;
-    transaction_count: number;
-    total_cashback: number;
-  }[];
+interface CashbackHistoryItem {
+  id: number;
+  storeName: string;
+  amount: number;
+  percentage: number;
+  date: string;
+  status: 'pending' | 'completed';
 }
 
 export default function ClientCashbacks() {
   const { user } = useAuth();
-  const { t } = useTranslation();
-  const isMobile = useMobile();
+  const isMobile = useIsMobile();
 
-  const { data: cashbackData, isLoading: isCashbackLoading } = useQuery<CashbackData>({
-    queryKey: ["/api/client/cashbacks"],
+  // Cashback balance query
+  const { data: balanceData, isLoading: isBalanceLoading } = useQuery({
+    queryKey: ['/api/client/dashboard'],
     enabled: !!user,
   });
 
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(value);
-  };
+  // Mock cashback history for demonstration
+  const mockCashbackHistory: CashbackHistoryItem[] = [
+    {
+      id: 1,
+      storeName: "Supermercado Boa Compra",
+      amount: 3.45,
+      percentage: 2,
+      date: format(new Date(2025, 4, 5), 'dd/MM/yyyy'),
+      status: 'completed'
+    },
+    {
+      id: 2,
+      storeName: "Farmácia Saúde",
+      amount: 1.20,
+      percentage: 1.5,
+      date: format(new Date(2025, 4, 4), 'dd/MM/yyyy'),
+      status: 'completed'
+    },
+    {
+      id: 3,
+      storeName: "Loja de Eletrônicos TechShop",
+      amount: 12.99,
+      percentage: 2,
+      date: format(new Date(2025, 4, 3), 'dd/MM/yyyy'),
+      status: 'completed'
+    },
+    {
+      id: 4,
+      storeName: "Restaurante Sabor Especial",
+      amount: 2.50,
+      percentage: 2.5,
+      date: format(new Date(2025, 4, 2), 'dd/MM/yyyy'),
+      status: 'completed'
+    },
+    {
+      id: 5,
+      storeName: "Posto de Combustível Rápido",
+      amount: 5.00,
+      percentage: 1,
+      date: format(new Date(2025, 4, 1), 'dd/MM/yyyy'),
+      status: 'pending'
+    }
+  ];
 
-  const parseAmount = (value: string): number => {
-    return parseFloat(value) || 0;
-  };
-
-  // Force mobile layout for consistency
-  if (false) {
+  // Decidimos se vamos usar o layout de desktop ou apenas o conteúdo
+  if (!isMobile) {
     return (
       <DashboardLayout title="Meu Cashback" type="client">
         <div className="space-y-6">
@@ -59,209 +85,285 @@ export default function ClientCashbacks() {
             <div className="flex flex-col items-center space-y-2">
               <BadgeDollarSign className="h-12 w-12" />
               <h3 className="text-lg">Saldo de Cashback</h3>
-              {isCashbackLoading ? (
+              {isBalanceLoading ? (
                 <Skeleton className="h-10 w-32 bg-primary-foreground/20" />
               ) : (
-                <p className="text-3xl font-bold">{formatCurrency(parseAmount(cashbackData?.balance || "0"))}</p>
+                <p className="text-3xl font-bold">$ {(balanceData?.cashbackBalance || 0).toFixed(2)}</p>
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Stats Grid */}
-        <div className="grid md:grid-cols-2 gap-6">
+        {/* Cashback Stats */}
+        <div className="grid grid-cols-2 gap-4">
           <Card>
-            <CardContent className="py-6">
-              <div className="flex items-center space-x-4">
-                <CreditCard className="h-8 w-8 text-muted-foreground" />
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground">Total Ganho</h3>
-                  {isCashbackLoading ? (
-                    <Skeleton className="h-8 w-24" />
-                  ) : (
-                    <p className="text-2xl font-bold">{formatCurrency(parseAmount(cashbackData?.total_earned || "0"))}</p>
-                  )}
-                </div>
+            <CardContent className="py-4">
+              <div className="flex flex-col items-center space-y-1">
+                <CreditCard className="h-6 w-6 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Ganho este mês</h3>
+                {isBalanceLoading ? (
+                  <Skeleton className="h-6 w-16" />
+                ) : (
+                  <p className="text-xl font-bold">$ {(balanceData?.earnedThisMonth || 0).toFixed(2)}</p>
+                )}
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="py-6">
-              <div className="flex items-center space-x-4">
-                <Clock className="h-8 w-8 text-muted-foreground" />
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground">Pendente</h3>
-                  {isCashbackLoading ? (
-                    <Skeleton className="h-8 w-24" />
-                  ) : (
-                    <p className="text-2xl font-bold">{formatCurrency(parseAmount(cashbackData?.pending || "0"))}</p>
-                  )}
-                </div>
+            <CardContent className="py-4">
+              <div className="flex flex-col items-center space-y-1">
+                <Receipt className="h-6 w-6 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Total acumulado</h3>
+                {isBalanceLoading ? (
+                  <Skeleton className="h-6 w-16" />
+                ) : (
+                  <p className="text-xl font-bold">$ {(balanceData?.totalCashbackEarned || 0).toFixed(2)}</p>
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Recent Cashback Activity */}
+        {/* Cashback History */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
-              <History className="h-5 w-5 mr-2" />
-              Histórico de Cashback
-            </CardTitle>
+            <CardTitle>Histórico de Cashback</CardTitle>
           </CardHeader>
-          <CardContent>
-            {isCashbackLoading ? (
-              <div className="space-y-4">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center space-x-4">
-                      <Skeleton className="h-12 w-12 rounded-full" />
-                      <div className="space-y-2">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-24" />
+          <CardContent className="p-0">
+            <Tabs defaultValue="all">
+              <div className="px-4">
+                <TabsList className="w-full">
+                  <TabsTrigger value="all" className="flex-1">Todos</TabsTrigger>
+                  <TabsTrigger value="pending" className="flex-1">Pendentes</TabsTrigger>
+                  <TabsTrigger value="completed" className="flex-1">Aprovados</TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value="all" className="m-0 p-0">
+                <div className="divide-y">
+                  {mockCashbackHistory.map((item) => (
+                    <div key={item.id} className="p-4">
+                      <div className="flex justify-between mb-1">
+                        <div className="font-medium">{item.storeName}</div>
+                        <div className="font-medium text-green-600">+$ {item.amount.toFixed(2)}</div>
+                      </div>
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <div>{item.date} • {item.percentage}%</div>
+                        <div className={item.status === 'completed' ? 'text-green-600' : 'text-amber-600'}>
+                          {item.status === 'completed' ? 'Aprovado' : 'Pendente'}
+                        </div>
                       </div>
                     </div>
-                    <Skeleton className="h-4 w-20" />
-                  </div>
-                ))}
-              </div>
-            ) : cashbackData?.history && cashbackData.history.length > 0 ? (
-              <div className="space-y-4">
-                {cashbackData.history.slice(0, 10).map((transaction) => (
-                  <div key={transaction.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                    <div className="flex items-center space-x-4">
-                      <div className="h-12 w-12 bg-primary/10 rounded-full flex items-center justify-center">
-                        <ShoppingBag className="h-6 w-6 text-primary" />
+                  ))}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="pending" className="m-0 p-0">
+                <div className="divide-y">
+                  {mockCashbackHistory
+                    .filter(item => item.status === 'pending')
+                    .map((item) => (
+                      <div key={item.id} className="p-4">
+                        <div className="flex justify-between mb-1">
+                          <div className="font-medium">{item.storeName}</div>
+                          <div className="font-medium text-green-600">+$ {item.amount.toFixed(2)}</div>
+                        </div>
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <div>{item.date} • {item.percentage}%</div>
+                          <div className="text-amber-600">Pendente</div>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{transaction.store_name || 'Loja'}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {formatTransactionDate(transaction.created_at, 'full')}
-                        </p>
+                    ))}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="completed" className="m-0 p-0">
+                <div className="divide-y">
+                  {mockCashbackHistory
+                    .filter(item => item.status === 'completed')
+                    .map((item) => (
+                      <div key={item.id} className="p-4">
+                        <div className="flex justify-between mb-1">
+                          <div className="font-medium">{item.storeName}</div>
+                          <div className="font-medium text-green-600">+$ {item.amount.toFixed(2)}</div>
+                        </div>
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <div>{item.date} • {item.percentage}%</div>
+                          <div className="text-green-600">Aprovado</div>
+                        </div>
                       </div>
-                    </div>
-                    <p className="font-semibold text-green-600">
-                      +{formatCurrency(parseAmount(transaction.cashback_amount))}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 text-muted-foreground">
-                <BadgeDollarSign className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg">Nenhum cashback encontrado</p>
-                <p className="text-sm">Suas transações aparecerão aqui</p>
-              </div>
-            )}
+                    ))}
+                </div>
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
-        </div>
-      </DashboardLayout>
-    );
-  }
 
-  // Layout mobile - MobileLayout is already provided by ProtectedRouteMobile
-  return (
-    <div className="space-y-4">
-      {/* Mobile Cashback Balance Card */}
-      <Card className="bg-primary text-primary-foreground">
-        <CardContent className="py-6">
-          <div className="flex flex-col items-center space-y-2">
-            <BadgeDollarSign className="h-12 w-12" />
-            <h3 className="text-lg">Saldo de Cashback</h3>
-            {isCashbackLoading ? (
-              <Skeleton className="h-10 w-32 bg-primary-foreground/20" />
-            ) : (
-              <p className="text-3xl font-bold">{formatCurrency(parseAmount(cashbackData?.balance || "0"))}</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Mobile Stats */}
-      <div className="grid grid-cols-2 gap-4">
+        {/* How Cashback Works */}
         <Card>
-          <CardContent className="py-4">
-            <div className="flex flex-col items-center space-y-1">
-              <CreditCard className="h-6 w-6 text-muted-foreground" />
-              <h3 className="text-sm font-medium">Total Ganho</h3>
-              {isCashbackLoading ? (
-                <Skeleton className="h-6 w-16" />
-              ) : (
-                <p className="text-xl font-bold">{formatCurrency(parseAmount(cashbackData?.total_earned || "0"))}</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-4">
-            <div className="flex flex-col items-center space-y-1">
-              <Clock className="h-6 w-6 text-muted-foreground" />
-              <h3 className="text-sm font-medium">Pendente</h3>
-              {isCashbackLoading ? (
-                <Skeleton className="h-6 w-16" />
-              ) : (
-                <p className="text-xl font-bold">{formatCurrency(parseAmount(cashbackData?.pending || "0"))}</p>
-              )}
-            </div>
+          <CardHeader>
+            <CardTitle>Como Funciona o Cashback</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              O Vale Cashback oferece retorno em dinheiro de 2% em todas as compras realizadas em lojas participantes.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              O cashback é calculado automaticamente e adicionado ao seu saldo, podendo ser utilizado para transferências ou novas compras.
+            </p>
+            <Button variant="outline" className="w-full mt-2">
+              <span>Ver lojas participantes</span>
+              <ChevronRight className="h-4 w-4 ml-2" />
+            </Button>
           </CardContent>
         </Card>
       </div>
+      </DashboardLayout>
+    );
+  } else {
+    // Para mobile, retornamos apenas o conteúdo principal, sem nenhum layout adicional
+    // porque ele será adicionado pelo ProtectedRouteMobile
+    return (
+      <div className="space-y-6">
+        {/* Cashback Balance Card */}
+        <Card className="bg-primary text-primary-foreground">
+          <CardContent className="py-6">
+            <div className="flex flex-col items-center space-y-2">
+              <BadgeDollarSign className="h-12 w-12" />
+              <h3 className="text-lg">Saldo de Cashback</h3>
+              {isBalanceLoading ? (
+                <Skeleton className="h-10 w-32 bg-primary-foreground/20" />
+              ) : (
+                <p className="text-3xl font-bold">$ {(balanceData?.cashbackBalance || 0).toFixed(2)}</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Recent Cashback Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <History className="h-5 w-5 mr-2" />
-            Últimos Cashbacks
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isCashbackLoading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <Skeleton className="h-10 w-10 rounded-full" />
-                    <div className="space-y-1">
-                      <Skeleton className="h-4 w-24" />
-                      <Skeleton className="h-3 w-16" />
+        {/* Cashback Stats */}
+        <div className="grid grid-cols-2 gap-4">
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex flex-col items-center space-y-1">
+                <CreditCard className="h-6 w-6 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Ganho este mês</h3>
+                {isBalanceLoading ? (
+                  <Skeleton className="h-6 w-16" />
+                ) : (
+                  <p className="text-xl font-bold">$ {(balanceData?.earnedThisMonth || 0).toFixed(2)}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex flex-col items-center space-y-1">
+                <Receipt className="h-6 w-6 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Total acumulado</h3>
+                {isBalanceLoading ? (
+                  <Skeleton className="h-6 w-16" />
+                ) : (
+                  <p className="text-xl font-bold">$ {(balanceData?.totalCashbackEarned || 0).toFixed(2)}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Cashback History */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Histórico de Cashback</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Tabs defaultValue="all">
+              <div className="px-4">
+                <TabsList className="w-full">
+                  <TabsTrigger value="all" className="flex-1">Todos</TabsTrigger>
+                  <TabsTrigger value="pending" className="flex-1">Pendentes</TabsTrigger>
+                  <TabsTrigger value="completed" className="flex-1">Aprovados</TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value="all" className="m-0 p-0">
+                <div className="divide-y">
+                  {mockCashbackHistory.map((item) => (
+                    <div key={item.id} className="p-4">
+                      <div className="flex justify-between mb-1">
+                        <div className="font-medium">{item.storeName}</div>
+                        <div className="font-medium text-green-600">+$ {item.amount.toFixed(2)}</div>
+                      </div>
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <div>{item.date} • {item.percentage}%</div>
+                        <div className={item.status === 'completed' ? 'text-green-600' : 'text-amber-600'}>
+                          {item.status === 'completed' ? 'Aprovado' : 'Pendente'}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <Skeleton className="h-4 w-16" />
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : cashbackData?.history && cashbackData.history.length > 0 ? (
-            <div className="space-y-3">
-              {cashbackData.history.slice(0, 5).map((transaction) => (
-                <div key={transaction.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
-                      <ShoppingBag className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{transaction.store_name || 'Loja'}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatTransactionDate(transaction.created_at, 'short')}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="font-medium text-green-600 text-sm">
-                    +{formatCurrency(parseAmount(transaction.cashback_amount))}
-                  </p>
+              </TabsContent>
+
+              <TabsContent value="pending" className="m-0 p-0">
+                <div className="divide-y">
+                  {mockCashbackHistory
+                    .filter(item => item.status === 'pending')
+                    .map((item) => (
+                      <div key={item.id} className="p-4">
+                        <div className="flex justify-between mb-1">
+                          <div className="font-medium">{item.storeName}</div>
+                          <div className="font-medium text-green-600">+$ {item.amount.toFixed(2)}</div>
+                        </div>
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <div>{item.date} • {item.percentage}%</div>
+                          <div className="text-amber-600">Pendente</div>
+                        </div>
+                      </div>
+                    ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <BadgeDollarSign className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>Nenhum cashback encontrado</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+              </TabsContent>
+
+              <TabsContent value="completed" className="m-0 p-0">
+                <div className="divide-y">
+                  {mockCashbackHistory
+                    .filter(item => item.status === 'completed')
+                    .map((item) => (
+                      <div key={item.id} className="p-4">
+                        <div className="flex justify-between mb-1">
+                          <div className="font-medium">{item.storeName}</div>
+                          <div className="font-medium text-green-600">+$ {item.amount.toFixed(2)}</div>
+                        </div>
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <div>{item.date} • {item.percentage}%</div>
+                          <div className="text-green-600">Aprovado</div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+
+        {/* How Cashback Works */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Como Funciona o Cashback</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              O Vale Cashback oferece retorno em dinheiro de 2% em todas as compras realizadas em lojas participantes.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              O cashback é calculado automaticamente e adicionado ao seu saldo, podendo ser utilizado para transferências ou novas compras.
+            </p>
+            <Button variant="outline" className="w-full mt-2">
+              <span>Ver lojas participantes</span>
+              <ChevronRight className="h-4 w-4 ml-2" />
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 }

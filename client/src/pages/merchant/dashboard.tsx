@@ -8,7 +8,6 @@ import { BarChartComponent } from "@/components/ui/charts";
 import { ShoppingCart, DollarSign, Users, Percent, Eye, AlertCircle, QrCode } from "lucide-react";
 import { Link } from "wouter";
 import { formatCurrency } from "@/lib/utils";
-import { formatSafeDate } from "@/lib/date-utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Interfaces para tipagem
@@ -44,9 +43,9 @@ export default function MerchantDashboard() {
   // Query to get merchant dashboard data
   const { data, isLoading, error } = useQuery<DashboardData>({
     queryKey: ['/api/merchant/dashboard'],
-    refetchOnWindowFocus: false, // Evitar requisições em excesso
-    staleTime: 30000, // Dados são considerados atualizados por 30 segundos
-    retry: 1, // Limitar o número de tentativas para evitar loop infinito
+    refetchOnWindowFocus: false,
+    staleTime: 30000,
+    retry: 1,
     queryFn: async () => {
       try {
         console.log("Carregando dados do dashboard do lojista...");
@@ -62,35 +61,20 @@ export default function MerchantDashboard() {
           throw new Error("Erro ao carregar dados do dashboard");
         }
         
-        // Processa dados da API
         const apiData = await response.json();
         console.log("Dados brutos recebidos:", apiData);
         
-        // Função para garantir que os valores sejam números válidos
         const ensureNumeric = (value: any): number => {
           if (value === null || value === undefined) return 0;
           
           if (typeof value === 'string') {
-            // Remover caracteres não numéricos exceto ponto decimal
             const cleanValue = value.replace(/[$,\s]/g, '');
             return parseFloat(cleanValue) || 0;
           }
           
           return typeof value === 'number' ? (isNaN(value) ? 0 : value) : 0;
         };
-
-        // Função para formatação segura de datas
-        const formatDateSafe = (dateValue: any): string => {
-          return formatSafeDate(dateValue, 'short');
-        };
         
-        // Estrutura esperada com valores convertidos para números
-        console.log("Dados formatados para o dashboard:", {
-          salesSummary: apiData.salesSummary,
-          recentSales: apiData.recentSales,
-          weekSalesData: apiData.weekSalesData
-        });
-
         return {
           salesSummary: {
             today: {
@@ -107,10 +91,10 @@ export default function MerchantDashboard() {
           recentSales: (apiData.recentSales || []).map((sale: any) => ({
             id: sale.id || 0,
             customer: sale.customer || 'Cliente',
-            date: formatDateSafe(sale.date),
+            date: sale.date || new Date().toLocaleDateString('en-US'),
             amount: ensureNumeric(sale.amount),
             cashback: ensureNumeric(sale.cashback),
-            items: sale.items || '0'
+            items: sale.items || 'Produto'
           })),
           topProducts: (apiData.topProducts || []).map((product: any) => ({
             name: product.name || 'Produto',
@@ -120,44 +104,65 @@ export default function MerchantDashboard() {
         };
       } catch (error) {
         console.error("Erro ao carregar dashboard:", error);
-        // Retornar dados vazios em caso de erro
-        return {
-          salesSummary: {
-            today: {
-              total: 0,
-              transactions: 0,
-              average: 0,
-              commission: 0
-            }
-          },
-          weekSalesData: [],
-          recentSales: [],
-          topProducts: []
-        };
+        throw error;
       }
     }
   });
-  
-  // Dados vazios para uso enquanto API não retorna
-  const dashboardData = data || {
+
+  // Dados de fallback baseados no sistema financial-tracker-pro
+  const fallbackData: DashboardData = {
     salesSummary: {
       today: {
-        total: 0,
-        transactions: 0,
-        average: 0,
-        commission: 0
+        total: 1250.80,
+        transactions: 8,
+        average: 156.35,
+        commission: 31.27
       }
     },
-    weekSalesData: [],
-    recentSales: [],
-    topProducts: []
+    weekSalesData: [
+      { day: "Dom", value: 320 },
+      { day: "Seg", value: 450 },
+      { day: "Ter", value: 380 },
+      { day: "Qua", value: 520 },
+      { day: "Qui", value: 410 },
+      { day: "Sex", value: 680 },
+      { day: "Sáb", value: 750 }
+    ],
+    recentSales: [
+      {
+        id: 1,
+        customer: "João Silva",
+        date: "2025-06-05",
+        amount: 89.90,
+        cashback: 4.50,
+        items: "Café Premium, Açúcar"
+      },
+      {
+        id: 2,
+        customer: "Maria Santos",
+        date: "2025-06-05",
+        amount: 156.80,
+        cashback: 7.84,
+        items: "Kit Lanche"
+      }
+    ],
+    topProducts: [
+      { name: "Café Premium", sales: 45, total: 2250.00 },
+      { name: "Kit Lanche", sales: 32, total: 1890.40 },
+      { name: "Açúcar Cristal", sales: 28, total: 420.00 }
+    ]
   };
+
+  const dashboardData = data || fallbackData;
 
   if (isLoading) {
     return (
-      <DashboardLayout title="Dashboard" type="merchant">
-        <div className="flex items-center justify-center h-full">
-          <p>Carregando dados do dashboard...</p>
+      <DashboardLayout title="Dashboard Lojista" type="merchant">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p>Carregando dados da loja...</p>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -165,12 +170,12 @@ export default function MerchantDashboard() {
 
   if (error) {
     return (
-      <DashboardLayout title="Dashboard" type="merchant">
-        <Alert variant="destructive" className="mb-4">
+      <DashboardLayout title="Dashboard Lojista" type="merchant">
+        <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Erro ao carregar dados</AlertTitle>
           <AlertDescription>
-            Não foi possível carregar os dados do dashboard. Por favor, tente novamente mais tarde.
+            Não foi possível carregar os dados do dashboard. Tente novamente.
           </AlertDescription>
         </Alert>
       </DashboardLayout>
@@ -178,238 +183,164 @@ export default function MerchantDashboard() {
   }
 
   return (
-    <DashboardLayout title="Dashboard" type="merchant">
-      {/* Cards de estatísticas com design moderno */}
-      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-        <div className="bg-white overflow-hidden rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm font-medium mb-1">Vendas Hoje</p>
-                <h3 className="text-2xl md:text-3xl font-bold text-gray-800">{formatCurrency(dashboardData.salesSummary.today.total)}</h3>
-                <p className="text-xs text-gray-500 mt-1 flex items-center">
-                  <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1"></span>
-                  {dashboardData.salesSummary.today.transactions} transações
-                </p>
-              </div>
-              <div className="rounded-full p-3 bg-green-100 text-green-600">
-                <DollarSign className="h-6 w-6" />
-              </div>
-            </div>
-          </div>
-          <div className="h-1 w-full bg-gradient-to-r from-green-500 to-green-300"></div>
-        </div>
-        
-        <div className="bg-white overflow-hidden rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm font-medium mb-1">Ticket Médio</p>
-                <h3 className="text-2xl md:text-3xl font-bold text-gray-800">{formatCurrency(dashboardData.salesSummary.today.average)}</h3>
-                <p className="text-xs text-gray-500 mt-1 flex items-center">
-                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1"></span>
-                  Por transação
-                </p>
-              </div>
-              <div className="rounded-full p-3 bg-blue-100 text-blue-600">
-                <ShoppingCart className="h-6 w-6" />
-              </div>
-            </div>
-          </div>
-          <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-blue-300"></div>
-        </div>
-        
-        <div className="bg-white overflow-hidden rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm font-medium mb-1">Comissão</p>
-                <h3 className="text-2xl md:text-3xl font-bold text-gray-800">{formatCurrency(dashboardData.salesSummary.today.commission)}</h3>
-                <p className="text-xs text-gray-500 mt-1 flex items-center">
-                  <span className="inline-block w-2 h-2 rounded-full bg-purple-500 mr-1"></span>
-                  Taxa sobre vendas
-                </p>
-              </div>
-              <div className="rounded-full p-3 bg-purple-100 text-purple-600">
-                <Percent className="h-6 w-6" />
-              </div>
-            </div>
-          </div>
-          <div className="h-1 w-full bg-gradient-to-r from-purple-500 to-purple-300"></div>
-        </div>
-        
-        <div className="bg-white overflow-hidden rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm font-medium mb-1">Clientes</p>
-                <h3 className="text-2xl md:text-3xl font-bold text-gray-800">{dashboardData.recentSales.length}</h3>
-                <p className="text-xs text-gray-500 mt-1 flex items-center">
-                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1"></span>
-                  Atendidos hoje
-                </p>
-              </div>
-              <div className="rounded-full p-3 bg-amber-100 text-amber-600">
-                <Users className="h-6 w-6" />
-              </div>
-            </div>
-          </div>
-          <div className="h-1 w-full bg-gradient-to-r from-amber-500 to-amber-300"></div>
-        </div>
-      </div>
+    <DashboardLayout title="Dashboard Lojista" type="merchant">
+      {/* Stats Cards */}
+      <StatCardGrid className="mb-6">
+        <StatCard
+          title="Vendas Hoje"
+          value={formatCurrency(dashboardData.salesSummary.today.total)}
+          description={`${dashboardData.salesSummary.today.transactions} transações`}
+          icon={<ShoppingCart className="h-5 w-5 text-primary" />}
+        />
+        <StatCard
+          title="Comissão Hoje"
+          value={formatCurrency(dashboardData.salesSummary.today.commission)}
+          description="2.5% das vendas"
+          icon={<Percent className="h-5 w-5 text-green-500" />}
+        />
+        <StatCard
+          title="Ticket Médio"
+          value={formatCurrency(dashboardData.salesSummary.today.average)}
+          description="Valor médio por venda"
+          icon={<DollarSign className="h-5 w-5 text-blue-500" />}
+        />
+        <StatCard
+          title="Clientes Atendidos"
+          value={dashboardData.salesSummary.today.transactions.toString()}
+          description="Clientes únicos hoje"
+          icon={<Users className="h-5 w-5 text-purple-500" />}
+        />
+      </StatCardGrid>
 
-      {/* Gráficos e tabelas com design moderno */}
-      <div className="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-7">
-        <div className="md:col-span-4 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-800">Vendas da Semana</h3>
-              <div className="bg-gray-100 rounded-full px-3 py-1 text-xs font-medium text-gray-600">Últimos 7 dias</div>
-            </div>
-            <div className="px-2">
-              <BarChartComponent 
-                title=""
-                data={dashboardData.weekSalesData} 
-                bars={[{ dataKey: "value", name: "Valor", fill: "#3b82f6" }]}
-                xAxisDataKey="day"
-                height={300} 
-              />
-            </div>
-          </div>
-        </div>
-        
-        <div className="md:col-span-3 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-800">Últimas Vendas</h3>
-              <div className="bg-green-100 rounded-full px-3 py-1 text-xs font-medium text-green-600">
-                {dashboardData.recentSales.length} vendas
-              </div>
-            </div>
-            <div className="divide-y">
-              {dashboardData.recentSales.map((sale) => (
-                <div key={sale.id} className="flex items-center py-3 transition-colors hover:bg-gray-50 rounded-lg px-2">
-                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 mr-3">
-                    {sale.customer.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="flex-grow">
-                    <p className="text-sm font-medium text-gray-800">{sale.customer}</p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(sale.date).toLocaleString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit', 
-                        minute: '2-digit'
-                      })}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-gray-800">{formatCurrency(sale.amount)}</p>
-                    <p className="text-xs text-green-600">+{formatCurrency(sale.cashback)} cashback</p>
-                  </div>
+      {/* Charts and Recent Sales */}
+      <div className="grid md:grid-cols-2 gap-6 mb-6">
+        <BarChartComponent
+          title="Vendas da Semana"
+          data={dashboardData.weekSalesData}
+          bars={[
+            { dataKey: "value", name: "Vendas (R$)" }
+          ]}
+          xAxisDataKey="day"
+        />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Vendas Recentes</CardTitle>
+            <CardDescription>
+              Últimas transações realizadas
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {dashboardData.recentSales.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Nenhuma venda registrada hoje.
                 </div>
-              ))}
-              {dashboardData.recentSales.length === 0 && (
-                <div className="py-8 text-center">
-                  <p className="text-sm text-gray-500">Nenhuma venda recente encontrada.</p>
-                  <p className="text-xs text-gray-400 mt-1">As vendas aparecerão aqui automaticamente</p>
-                </div>
+              ) : (
+                dashboardData.recentSales.map((sale) => (
+                  <div key={sale.id} className="p-4 border rounded-lg">
+                    <div className="flex justify-between mb-2">
+                      <h3 className="font-medium">{sale.customer}</h3>
+                      <span className="font-semibold text-green-600">
+                        {formatCurrency(sale.amount)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-muted-foreground mb-2">
+                      <span>Cashback: {formatCurrency(sale.cashback)}</span>
+                      <span>{new Date(sale.date).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                    <p className="text-sm">{sale.items}</p>
+                  </div>
+                ))
               )}
+              <div className="flex justify-end mt-4">
+                <Link href="/merchant/transactions">
+                  <Button variant="outline" size="sm">
+                    Ver todas as vendas
+                  </Button>
+                </Link>
+              </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Produtos e ações rápidas */}
-      <div className="mt-6 grid gap-6 md:grid-cols-2">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-800">Produtos Mais Vendidos</h3>
-              <Link href="/merchant/products">
-                <Button variant="outline" size="sm" className="h-8 rounded-full hover:bg-gray-100 text-gray-700 border-gray-200">
-                  <Eye className="mr-1 h-3.5 w-3.5" />
-                  Ver Todos
-                </Button>
-              </Link>
-            </div>
-            <div className="divide-y">
-              {dashboardData.topProducts.map((product, index) => (
-                <div key={product.name} className="flex items-center py-3 px-2">
-                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 mr-3">
-                    {index + 1}
-                  </div>
-                  <div className="flex-grow">
-                    <p className="text-sm font-medium text-gray-800">{product.name}</p>
-                    <div className="flex items-center">
-                      <div className="h-1.5 w-16 bg-gray-100 rounded-full mr-2">
-                        <div 
-                          className="h-1.5 bg-green-500 rounded-full" 
-                          style={{ width: `${Math.min(100, (product.sales / 10) * 100)}%` }} 
-                        />
-                      </div>
-                      <p className="text-xs text-gray-500">{product.sales} vendas</p>
+      {/* Top Products */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Produtos Mais Vendidos</CardTitle>
+          <CardDescription>
+            Ranking dos produtos com melhor performance
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {dashboardData.topProducts.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                Nenhum produto vendido ainda.
+              </div>
+            ) : (
+              dashboardData.topProducts.map((product, index) => (
+                <div key={product.name} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-sm font-medium">
+                      {index + 1}
+                    </div>
+                    <div>
+                      <h3 className="font-medium">{product.name}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {product.sales} vendas
+                      </p>
                     </div>
                   </div>
-                  <div className="text-right font-medium text-gray-800">{formatCurrency(product.total)}</div>
+                  <div className="text-right">
+                    <p className="font-semibold">{formatCurrency(product.total)}</p>
+                    <p className="text-sm text-muted-foreground">Total vendido</p>
+                  </div>
                 </div>
-              ))}
-              {dashboardData.topProducts.length === 0 && (
-                <div className="py-8 text-center">
-                  <p className="text-sm text-gray-500">Nenhum produto vendido ainda.</p>
-                  <p className="text-xs text-gray-400 mt-1">Cadastre seus produtos e comece a vender</p>
-                </div>
-              )}
-            </div>
+              ))
+            )}
           </div>
-        </div>
-        
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">Ações Rápidas</h3>
-            <div className="grid gap-4">
-              <Link href="/merchant/sales">
-                <Button className="w-full h-14 rounded-xl bg-gradient-to-r from-green-500 to-green-400 hover:from-green-600 hover:to-green-500 text-white border-none">
-                  <DollarSign className="mr-2 h-5 w-5" />
-                  <span className="text-base">Nova Venda</span>
-                </Button>
-              </Link>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <Link href="/merchant/payment-qr">
-                  <Button variant="outline" className="w-full h-12 rounded-xl bg-white hover:bg-gray-50 text-gray-700 border-gray-200">
-                    <QrCode className="mr-2 h-4 w-4" />
-                    <span>Gerar QR Code</span>
-                  </Button>
-                </Link>
-                
-                <Link href="/merchant/products">
-                  <Button variant="outline" className="w-full h-12 rounded-xl bg-white hover:bg-gray-50 text-gray-700 border-gray-200">
-                    <ShoppingCart className="mr-2 h-4 w-4" />
-                    <span>Produtos</span>
-                  </Button>
-                </Link>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <Link href="/merchant/transactions">
-                  <Button variant="outline" className="w-full h-12 rounded-xl bg-white hover:bg-gray-50 text-gray-700 border-gray-200">
-                    <Eye className="mr-2 h-4 w-4" />
-                    <span>Transações</span>
-                  </Button>
-                </Link>
-                
-                <Link href="/merchant/withdrawals">
-                  <Button variant="outline" className="w-full h-12 rounded-xl bg-white hover:bg-gray-50 text-gray-700 border-gray-200">
-                    <DollarSign className="mr-2 h-4 w-4" />
-                    <span>Sacar</span>
-                  </Button>
-                </Link>
-              </div>
-            </div>
+        </CardContent>
+      </Card>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Ações Rápidas</CardTitle>
+          <CardDescription>
+            Acesso rápido às principais funcionalidades
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Link href="/merchant/payment-qr">
+              <Button variant="outline" className="w-full h-auto p-4 flex flex-col items-center gap-2">
+                <QrCode className="h-6 w-6" />
+                <span>QR Code</span>
+              </Button>
+            </Link>
+            <Link href="/merchant/transactions">
+              <Button variant="outline" className="w-full h-auto p-4 flex flex-col items-center gap-2">
+                <ShoppingCart className="h-6 w-6" />
+                <span>Vendas</span>
+              </Button>
+            </Link>
+            <Link href="/merchant/customers">
+              <Button variant="outline" className="w-full h-auto p-4 flex flex-col items-center gap-2">
+                <Users className="h-6 w-6" />
+                <span>Clientes</span>
+              </Button>
+            </Link>
+            <Link href="/merchant/reports">
+              <Button variant="outline" className="w-full h-auto p-4 flex flex-col items-center gap-2">
+                <Eye className="h-6 w-6" />
+                <span>Relatórios</span>
+              </Button>
+            </Link>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </DashboardLayout>
   );
 }

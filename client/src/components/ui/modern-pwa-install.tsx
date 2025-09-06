@@ -250,7 +250,7 @@ export function ModernPWAInstall() {
 
   // Componente de banner de instalação
   const InstallBanner = () => (
-    <div className="fixed bottom-20 left-4 right-4 md:left-auto md:right-4 md:bottom-4 md:w-96 z-40 pwa-install-banner">
+    <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:bottom-4 md:w-96 z-50 pwa-install-banner">
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl border p-4">
         <div className="flex justify-between items-start mb-2">
           <div className="flex items-center">

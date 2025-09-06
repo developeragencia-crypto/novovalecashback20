@@ -46,7 +46,7 @@ export default function MerchantSalaries() {
   
   // Query para buscar os dados financeiros e salários do lojista
   const { data, isLoading, error } = useQuery({
-    queryKey: ['/api/merchant/salaries'],
+    queryKey: ['/api/merchant/salaries', activeTab],
     placeholderData: {
       // Dados de ganhos (comissões e vendas)
       earnings: {
@@ -85,10 +85,10 @@ export default function MerchantSalaries() {
           }
         ]
       },
-      // Dados de taxas aplicadas - CORRIGIDO
+      // Dados de taxas aplicadas
       fees: {
         platformFee: 0.05, // 5% taxa da plataforma
-        merchantCommission: 0.00, // 0% - REMOVIDO do novo modelo
+        merchantCommission: 0.02, // 2% comissão do lojista
         clientCashback: 0.02, // 2% cashback para o cliente
         referralBonus: 0.01, // 1% bônus de indicação
         withdrawalFee: 0.05, // 5% taxa de saque
@@ -96,7 +96,7 @@ export default function MerchantSalaries() {
         sampleCalculation: {
           saleAmount: 1000.00,
           platformFee: 50.00, // 5% de 1000
-          merchantCommission: 0.00, // REMOVIDO - 0% de 1000
+          merchantCommission: 20.00, // 2% de 1000
           clientCashback: 20.00, // 2% de 1000
           referralBonus: 10.00, // 1% de 1000
           netAmount: 900.00, // Valor líquido após taxa da plataforma
@@ -171,6 +171,7 @@ export default function MerchantSalaries() {
           { name: "Valor Líquido", value: 11951.19 },
           { name: "Taxa da Plataforma", value: 642.54 },
           { name: "Cashback ao Cliente", value: 257.02 },
+          { name: "Comissão do Lojista", value: 257.02 },
           { name: "Bônus de Indicação", value: 128.51 }
         ]
       }
@@ -406,7 +407,24 @@ export default function MerchantSalaries() {
                   
                   <Separator />
                   
-                  {/* Comissão de Lojista removida do novo modelo */}
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center">
+                      <div className="bg-primary/10 p-2 rounded-full mr-3">
+                        <DollarSign className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-medium">Comissão do Lojista</div>
+                        <div className="text-sm text-muted-foreground">
+                          Paga ao lojista por cada venda
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-lg font-bold text-green-600">
+                      {(data?.fees.merchantCommission || 0) * 100}%
+                    </div>
+                  </div>
+                  
+                  <Separator />
                   
                   <div className="flex justify-between items-center">
                     <div className="flex items-center">
@@ -446,7 +464,22 @@ export default function MerchantSalaries() {
                   
                   <Separator />
                   
-                  {/* Taxa do Lojista removida - não aplicamos mais taxas sobre saques */}
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center">
+                      <div className="bg-primary/10 p-2 rounded-full mr-3">
+                        <Wallet className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-medium">Taxa do Lojista</div>
+                        <div className="text-sm text-muted-foreground">
+                          Aplicada sobre o valor do saque
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-lg font-bold text-orange-600">
+                      {(data?.fees.merchantCommission || 0) * 100}%
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -487,7 +520,17 @@ export default function MerchantSalaries() {
                         </div>
                       </div>
                       
-                      {/* Comissão do Lojista removida do novo modelo */}
+                      <div className="bg-muted p-3 rounded-md">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center">
+                            <DollarSign className="h-4 w-4 mr-2 text-green-600" />
+                            <span>Comissão do Lojista (2%):</span>
+                          </div>
+                          <span className="font-medium text-green-600">
+                            +{formatCurrency(data?.fees.sampleCalculation.merchantCommission || 0)}
+                          </span>
+                        </div>
+                      </div>
                       
                       <div className="bg-muted p-3 rounded-md">
                         <div className="flex justify-between items-center">
@@ -524,7 +567,14 @@ export default function MerchantSalaries() {
                           {formatCurrency(data?.fees.sampleCalculation.netAmount || 0)}
                         </span>
                       </div>
-                      {/* Taxa do Lojista removida - novo modelo não cobra taxa sobre saques */}
+                      <div className="mt-2 pt-2 border-t">
+                        <div className="flex justify-between items-center">
+                          <span>Taxa do Lojista (2%):</span>
+                          <span className="font-medium text-orange-600">
+                            -{formatCurrency(data?.fees.sampleCalculation.withdrawalFeeExample || 0)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

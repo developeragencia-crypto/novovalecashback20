@@ -38,63 +38,29 @@ export default function MerchantProfile() {
     enabled: !!merchant, // Only fetch stats when merchant data is available
   });
 
-  // Handle received merchant data and map API fields correctly
-  const merchantData = merchant ? {
-    id: merchant.id,
-    name: merchant.store_name || "Loja Demo",
-    email: merchant.email || "contato@loja.com",
-    phone: merchant.phone || "(11) 99999-9999",
-    address: merchant.address || "Rua Principal, 123",
-    city: merchant.city || "São Paulo",
-    state: merchant.state || "SP",
-    country: merchant.country || "Brasil",
-    status: merchant.approved ? "approved" : "pending",
-    category: merchant.category || "Comércio",
-    description: merchant.description || "Loja parceira do Vale Cashback com produtos de qualidade e ótimo atendimento.",
-    business_hours: merchant.business_hours || "Seg-Sex: 08:00-18:00, Sáb: 08:00-14:00",
-    logo: merchant.logo || merchant.company_logo,
-    photo: merchant.photo,
-    owner: merchant.owner || "Lojista Demo",
-    created_at: merchant.created_at,
-    invitationCode: merchant.invitation_code || "INVITE003",
-    approved: merchant.approved,
-    cashbackRate: 2,
-    commissionRate: parseFloat(merchant.commission_rate) || 5,
-    totalSales: merchant.totalSales || 0,
-    totalCustomers: merchant.totalCustomers || 0,
-    totalCashbackIssued: merchant.totalCashbackIssued || 0,
-    website: merchant.website || "www.loja.com.br",
-    cashbackPromotions: {
-      enabled: false,
-      doubleOnWeekends: false,
-      specialCategories: false,
-      minimumPurchase: 0,
-      firstPurchaseBonus: 10,
-      birthDayBonus: 5
-    }
-  } : {
+  // Handle received merchant data and provide fallback values for missing fields
+  const merchantData = merchant || {
     id: 0,
-    name: "Loja Demo",
-    email: "contato@loja.com",
-    phone: "(11) 99999-9999",
-    address: "Rua Principal, 123",
-    city: "São Paulo",
-    state: "SP",
-    country: "Brasil",
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    city: "",
+    state: "",
+    country: "",
     status: "pending",
-    category: "Comércio",
-    description: "Loja parceira do Vale Cashback",
-    business_hours: "Seg-Sex: 08:00-18:00",
+    category: "",
+    description: "",
+    business_hours: "",
     logo: null,
     photo: null,
-    owner: "Lojista Demo",
+    owner: "",
     created_at: new Date().toISOString(),
-    invitationCode: "INVITE003",
+    invitationCode: "",
     approved: false,
-    cashbackRate: 2,
-    commissionRate: 5,
+    cashbackRate: 0,
+    commissionRate: 0,
     cashbackTotal: 0,
-    website: "www.loja.com.br",
     cashbackPromotions: {
       enabled: false,
       doubleOnWeekends: false,
@@ -844,7 +810,7 @@ export default function MerchantProfile() {
                     <span className="font-medium ml-1">{merchantData.invitationCode}</span>
                   </div>
                   <span className="text-xs text-muted-foreground sm:ml-auto">
-                    Indique novos lojistas e ganhe bônus 1% indicações
+                    Indique novos lojistas e ganhe bônus de {formatCurrency(25)}
                   </span>
                 </CardFooter>
               )}
@@ -947,7 +913,7 @@ export default function MerchantProfile() {
                 <CardContent className="p-6">
                   <div className="flex flex-col items-center space-y-2">
                     <DollarSign className="w-8 h-8 text-indigo-600 mb-2" />
-                    <p className="text-sm text-indigo-700">Cashback Cliente</p>
+                    <p className="text-sm text-indigo-700">Cashback Base</p>
                     <h3 className="text-2xl font-bold text-indigo-900">{merchantData.cashbackRate || 2}%</h3>
                     <p className="text-xs text-indigo-600 text-center">Porcentagem padrão de retorno para o cliente</p>
                   </div>
@@ -958,8 +924,8 @@ export default function MerchantProfile() {
                 <CardContent className="p-6">
                   <div className="flex flex-col items-center space-y-2">
                     <PercentIcon className="w-8 h-8 text-violet-600 mb-2" />
-                    <p className="text-sm text-violet-700">Taxa Plataforma</p>
-                    <h3 className="text-2xl font-bold text-violet-900">5%</h3>
+                    <p className="text-sm text-violet-700">Comissão Sistema</p>
+                    <h3 className="text-2xl font-bold text-violet-900">{merchantData.commissionRate || 2}%</h3>
                     <p className="text-xs text-violet-600 text-center">Taxa cobrada pelo Vale Cashback</p>
                   </div>
                 </CardContent>

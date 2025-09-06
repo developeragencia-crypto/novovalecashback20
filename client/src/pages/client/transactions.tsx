@@ -14,21 +14,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 
-// Interface para transações da API do cliente
-interface ClientTransaction {
+// Interface para transações
+interface Transaction {
   id: number;
-  amount: string;
-  cashback_amount: string;
-  description: string;
-  created_at: string;
-  store_name?: string;
-  payment_method: string;
+  merchant: string;
+  date: string;
+  amount: number;
+  cashback: number;
   status: string;
-  merchant_category?: string;
+  paymentMethod: string;
 }
 
 // Array vazio para quando não há transações
-const emptyTransactions: ClientTransaction[] = [];
+const emptyTransactions: Transaction[] = [];
 
 const paymentMethodLabels: Record<string, string> = {
   credit_card: "Cartão de Crédito",
@@ -45,11 +43,15 @@ export default function ClientTransactions() {
   const [store, setStore] = useState("all");
   const [status, setStatus] = useState("all");
 
-  // Query para buscar transações reais da API
-  const { data: transactions = [], isLoading, error } = useQuery<ClientTransaction[]>({
-    queryKey: ['/api/client/transactions'],
-    retry: 2,
-    staleTime: 30000
+  // Query to get transactions with debugging
+  const { data: transactions = [], isLoading } = useQuery({
+    queryKey: ['/api/client/transactions', { period, store, status }],
+    onSuccess: (data) => {
+      console.log("Transações carregadas:", data);
+    },
+    onError: (error) => {
+      console.error("Erro ao carregar transações:", error);
+    }
   });
 
   const handleViewDetails = (transaction: any) => {
@@ -88,51 +90,43 @@ export default function ClientTransactions() {
   const columns = [
     {
       header: "ID",
-      accessorKey: "id" as keyof ClientTransaction,
+      accessorKey: "id",
     },
     {
       header: "Loja",
-      accessorKey: "store_name" as keyof ClientTransaction,
-      cell: ({ row }: any) => {
-        const transaction = row.original;
-        return transaction.store_name || 'N/A';
-      },
+      accessorKey: "store",
     },
     {
       header: "Data",
-      accessorKey: "created_at" as keyof ClientTransaction,
-      cell: ({ row }: any) => {
-        const transaction = row.original;
-        return new Date(transaction.created_at).toLocaleDateString('pt-BR');
-      },
+      accessorKey: "date",
     },
     {
       header: "Valor",
-      accessorKey: "amount" as keyof ClientTransaction,
+      accessorKey: "amount",
       cell: ({ row }: any) => {
         const transaction = row.original;
         return (
           <span className="font-medium">
-            {formatCurrency(parseFloat(transaction.amount) || 0)}
+            {formatCurrency(transaction.amount)}
           </span>
         );
       },
     },
     {
       header: "Cashback",
-      accessorKey: "cashback_amount" as keyof ClientTransaction,
+      accessorKey: "cashback",
       cell: ({ row }: any) => {
         const transaction = row.original;
         return (
           <span className="text-green-600 font-medium">
-            {formatCurrency(parseFloat(transaction.cashback_amount) || 0)}
+            {formatCurrency(transaction.cashback)}
           </span>
         );
       },
     },
     {
       header: "Status",
-      accessorKey: "status" as keyof ClientTransaction,
+      accessorKey: "status",
       cell: ({ row }: any) => {
         const transaction = row.original;
         return (
@@ -146,11 +140,8 @@ export default function ClientTransactions() {
     },
     {
       header: "Método",
-      accessorKey: "payment_method" as keyof ClientTransaction,
-      cell: ({ row }: any) => {
-        const transaction = row.original;
-        return paymentMethodLabels[transaction.payment_method] || transaction.payment_method || 'N/A';
-      },
+      accessorKey: "paymentMethod",
+      cell: (row: any) => paymentMethodLabels[row.paymentMethod] || row.paymentMethod,
     },
   ];
 

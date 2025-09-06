@@ -1,40 +1,16 @@
-import { 
-  users, 
-  type User, 
-  type InsertUser,
-  passwordResetTokens,
-  type PasswordResetToken,
-  type InsertPasswordResetToken,
-  systemNotifications,
-  type SystemNotification,
-  type InsertSystemNotification
-} from "@shared/schema";
+import { users, type User, type InsertUser } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, gt } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
-import bcrypt from "bcrypt";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  updateUserPassword(userId: number, newPassword: string): Promise<boolean>;
   hashPassword(password: string): Promise<string>;
   comparePasswords(supplied: string, stored: string): Promise<boolean>;
-  
-  // Sistema de redefinição de senha
-  createPasswordResetToken(userId: number): Promise<string>;
-  validatePasswordResetToken(token: string): Promise<{ valid: boolean; userId?: number }>;
-  usePasswordResetToken(token: string): Promise<boolean>;
-  
-  // Sistema de notificações
-  createNotification(notification: InsertSystemNotification): Promise<SystemNotification>;
-  getUserNotifications(userId: number, onlyUnread?: boolean): Promise<SystemNotification[]>;
-  markNotificationAsRead(notificationId: number): Promise<boolean>;
-  
   sessionStore: session.Store;
 }
 
@@ -66,38 +42,16 @@ export class DatabaseStorage implements IStorage {
 
   async comparePasswords(supplied: string, stored: string): Promise<boolean> {
     try {
-      // Handle bcrypt passwords (new format)
-      if (stored.startsWith('$2b$') || stored.startsWith('$2a$')) {
-        return await bcrypt.compare(supplied, stored);
-      }
+      // Importar as funções necessárias
+      const { scrypt, timingSafeEqual } = await import('crypto');
+      const { promisify } = await import('util');
       
-      // Handle legacy scrypt passwords (old format)
-      if (stored.includes('.')) {
-        const { scrypt, timingSafeEqual } = await import('crypto');
-        const { promisify } = await import('util');
-        
-        const scryptAsync = promisify(scrypt);
-        
-        const [hashed, salt] = stored.split('.');
-        if (!hashed || !salt) {
-          console.error('Formato de senha armazenada inválido');
-          return false;
-        }
-        
-        const hashedBuf = Buffer.from(hashed, 'hex');
-        const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-        
-        if (hashedBuf.length !== suppliedBuf.length) {
-          console.error('Tamanhos de buffer diferentes');
-          return false;
-        }
-        
-        return timingSafeEqual(hashedBuf, suppliedBuf);
-      }
+      const scryptAsync = promisify(scrypt);
       
-      // Plain text comparison (fallback)
-      console.log('Senha sem hash detectada, comparação direta');
-      return supplied === stored;
+      const [hashed, salt] = stored.split('.');
+      const hashedBuf = Buffer.from(hashed, 'hex');
+      const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+      return timingSafeEqual(hashedBuf, suppliedBuf);
     } catch (error) {
       console.error('Erro ao comparar senhas:', error);
       return false;
@@ -188,14 +142,6 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select()
-      .from(users)
-      .where(eq(users.email, email));
-    
-    return result[0];
-  }
-
   async createUser(insertUser: InsertUser): Promise<User> {
     // Garantindo que todos os campos obrigatórios estejam preenchidos
     const userWithDefaults = {
@@ -216,131 +162,6 @@ export class DatabaseStorage implements IStorage {
       .returning();
     
     return result[0];
-  }
-
-  async updateUserPassword(userId: number, newPassword: string): Promise<boolean> {
-    try {
-      const hashedPassword = await this.hashPassword(newPassword);
-      const result = await db.update(users)
-        .set({ password: hashedPassword })
-        .where(eq(users.id, userId))
-        .returning();
-      
-      return result.length > 0;
-    } catch (error) {
-      console.error("Erro ao atualizar senha:", error);
-      return false;
-    }
-  }
-
-  async createPasswordResetToken(userId: number): Promise<string> {
-    try {
-      // Gerar token único
-      const { randomBytes } = await import('crypto');
-      const token = randomBytes(32).toString('hex');
-      
-      // Token expira em 1 hora
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-      
-      // Invalidar tokens anteriores do usuário
-      await db.update(passwordResetTokens)
-        .set({ is_used: true, used_at: new Date() })
-        .where(and(
-          eq(passwordResetTokens.user_id, userId),
-          eq(passwordResetTokens.is_used, false)
-        ));
-      
-      // Criar novo token
-      await db.insert(passwordResetTokens)
-        .values({
-          user_id: userId,
-          token,
-          expires_at: expiresAt,
-          is_used: false
-        });
-      
-      return token;
-    } catch (error) {
-      console.error("Erro ao criar token de redefinição:", error);
-      throw error;
-    }
-  }
-
-  async validatePasswordResetToken(token: string): Promise<{ valid: boolean; userId?: number }> {
-    try {
-      const result = await db.select()
-        .from(passwordResetTokens)
-        .where(and(
-          eq(passwordResetTokens.token, token),
-          eq(passwordResetTokens.is_used, false),
-          gt(passwordResetTokens.expires_at, new Date())
-        ));
-      
-      if (result.length === 0) {
-        return { valid: false };
-      }
-      
-      return { valid: true, userId: result[0].user_id };
-    } catch (error) {
-      console.error("Erro ao validar token:", error);
-      return { valid: false };
-    }
-  }
-
-  async usePasswordResetToken(token: string): Promise<boolean> {
-    try {
-      const result = await db.update(passwordResetTokens)
-        .set({ is_used: true, used_at: new Date() })
-        .where(and(
-          eq(passwordResetTokens.token, token),
-          eq(passwordResetTokens.is_used, false)
-        ))
-        .returning();
-      
-      return result.length > 0;
-    } catch (error) {
-      console.error("Erro ao usar token:", error);
-      return false;
-    }
-  }
-
-  async createNotification(notification: InsertSystemNotification): Promise<SystemNotification> {
-    const result = await db.insert(systemNotifications)
-      .values(notification)
-      .returning();
-    
-    return result[0];
-  }
-
-  async getUserNotifications(userId: number, onlyUnread: boolean = false): Promise<SystemNotification[]> {
-    if (onlyUnread) {
-      return db.select()
-        .from(systemNotifications)
-        .where(and(
-          eq(systemNotifications.user_id, userId),
-          eq(systemNotifications.is_read, false)
-        ))
-        .orderBy(systemNotifications.sent_at);
-    }
-    
-    return db.select()
-      .from(systemNotifications)
-      .where(eq(systemNotifications.user_id, userId))
-      .orderBy(systemNotifications.sent_at);
-  }
-
-  async markNotificationAsRead(notificationId: number): Promise<boolean> {
-    try {
-      const result = await db.update(systemNotifications)
-        .set({ is_read: true, read_at: new Date() })
-        .where(eq(systemNotifications.id, notificationId))
-        .returning();
-      
-      return result.length > 0;
-    } catch (error) {
-      console.error("Erro ao marcar notificação como lida:", error);
-      return false;
-    }
   }
 }
 

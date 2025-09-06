@@ -15,10 +15,9 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Loader2, User, Store, ShieldCheck, Mail, Eye, EyeOff } from "lucide-react";
+import { Loader2, User, Store, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
 import { useTranslation } from "@/hooks/use-translation";
-import { useToast } from "@/hooks/use-toast";
 
 type UserTypeOption = "client" | "merchant" | "admin";
 
@@ -36,27 +35,15 @@ interface UserTypeConfig {
 
 export default function Login() {
   const [userType, setUserType] = useState<UserTypeOption>("client");
-  const [showPasswordReset, setShowPasswordReset] = useState(false);
-  const [resetEmail, setResetEmail] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const { login, loading } = useAuth();
   const { t } = useTranslation();
-  const { toast } = useToast();
+  
+  // Não precisamos mais verificar aqui, a lógica agora está no App.tsx
   
   // Esquema do formulário com validações
   const formSchema = z.object({
     email: z.string().email({ message: t('errors.invalidEmail') }),
     password: z.string().min(6, { message: t('errors.passwordLength') }),
-  });
-
-  // Esquema para redefinição de senha
-  const resetFormSchema = z.object({
-    email: z.string().email({ message: "Email inválido" }),
-    newPassword: z.string().min(6, { message: "A senha deve ter pelo menos 6 caracteres" }),
-    confirmPassword: z.string().min(6, { message: "Confirme a senha" }),
-  }).refine((data) => data.newPassword === data.confirmPassword, {
-    message: "As senhas não coincidem",
-    path: ["confirmPassword"],
   });
   
   // Configurações do formulário
@@ -68,50 +55,6 @@ export default function Login() {
     },
   });
 
-  // Formulário de redefinição de senha
-  const resetForm = useForm({
-    resolver: zodResolver(resetFormSchema),
-    defaultValues: {
-      email: "",
-      newPassword: "",
-      confirmPassword: "",
-    },
-  });
-
-  // Detectar email válido automaticamente
-  const handleEmailChange = async (email: string) => {
-    if (email && email.includes("@") && email.includes(".")) {
-      try {
-        // Verificar se o email já teve a senha atualizada
-        const response = await fetch(`/api/check-password-updated/${encodeURIComponent(email)}`);
-        const data = await response.json();
-        
-        if (data.userExists && !data.passwordUpdated) {
-          setResetEmail(email);
-          resetForm.setValue("email", email);
-          setShowPasswordReset(true);
-          toast({
-            title: "Redefinir senha",
-            description: "Digite sua nova senha abaixo para atualizar.",
-          });
-        } else {
-          setShowPasswordReset(false);
-          setResetEmail("");
-          resetForm.reset();
-        }
-      } catch (error) {
-        console.error("Erro ao verificar status da senha:", error);
-        setShowPasswordReset(false);
-        setResetEmail("");
-        resetForm.reset();
-      }
-    } else {
-      setShowPasswordReset(false);
-      setResetEmail("");
-      resetForm.reset();
-    }
-  };
-
   // Função de envio do formulário
   const onSubmit = async (values: any) => {
     try {
@@ -121,51 +64,6 @@ export default function Login() {
       form.setError("root", { 
         type: "manual",
         message: t('errors.loginFailed')
-      });
-    }
-  };
-
-  // Redefinir senha diretamente
-  const onResetSubmit = async (values: z.infer<typeof resetFormSchema>) => {
-    try {
-      const response = await fetch('/api/reset-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: values.email,
-          newPassword: values.newPassword
-        })
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        toast({
-          title: "Sucesso",
-          description: "Senha atualizada com sucesso! Faça login com a nova senha.",
-        });
-        setShowPasswordReset(false);
-        setResetEmail("");
-        form.setValue("email", values.email);
-        form.setValue("password", "");
-        resetForm.reset();
-        setTimeout(() => {
-          form.setFocus("password");
-        }, 100);
-      } else {
-        toast({
-          title: "Erro",
-          description: result.message || "Erro ao redefinir senha",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Erro",
-        description: "Erro ao redefinir senha",
-        variant: "destructive",
       });
     }
   };
@@ -265,10 +163,6 @@ export default function Login() {
                     placeholder=""
                     className="h-11 px-4"
                     {...field}
-                    onChange={(e) => {
-                      field.onChange(e);
-                      handleEmailChange(e.target.value);
-                    }}
                     disabled={loading}
                   />
                 </FormControl>
@@ -326,95 +220,6 @@ export default function Login() {
           </Button>
         </form>
       </Form>
-
-      {/* Seção de Redefinição de Senha Automática */}
-      {showPasswordReset && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="mt-8 p-6 border border-orange-200 rounded-lg bg-orange-50"
-        >
-          <div className="flex items-center mb-4">
-            <Mail className="w-5 h-5 text-orange-600 mr-2" />
-            <h3 className="text-lg font-semibold text-orange-800">
-              Redefinir Senha para: {resetEmail}
-            </h3>
-          </div>
-          
-          <Form {...resetForm}>
-            <form onSubmit={resetForm.handleSubmit(onResetSubmit)} className="space-y-4">
-              <FormField
-                control={resetForm.control}
-                name="newPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-gray-700">Nova Senha</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Digite sua nova senha"
-                          className="h-11 px-4 pr-12"
-                          {...field}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                        >
-                          {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                        </button>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={resetForm.control}
-                name="confirmPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-gray-700">Confirmar Nova Senha</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="Confirme sua nova senha"
-                        className="h-11 px-4"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
-                >
-                  Atualizar Senha
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowPasswordReset(false);
-                    setResetEmail("");
-                    resetForm.reset();
-                  }}
-                  className="border-orange-300 text-orange-700 hover:bg-orange-50"
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </motion.div>
-      )}
 
       <div className="mt-6 text-center">
         <p className="text-sm text-gray-500">

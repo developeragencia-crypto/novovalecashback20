@@ -1,15 +1,13 @@
 import { Request, Response } from "express";
 import { Express } from "express";
 import { db } from "./db";
-import { eq, desc, and, isNull, sql } from "drizzle-orm";
+import { eq, desc, and, isNull } from "drizzle-orm";
 import { 
   users, 
-  merchants,
   cashbacks, 
   transactions, 
   transactionItems,
   qrCodes,
-  commissionSettings,
   InsertQRCode,
   Transaction,
   InsertTransaction,
@@ -381,23 +379,12 @@ export function addPaymentRoutes(app: Express) {
         valorPagamento: roundedAmountToPay
       });
       
-      // Buscar o lojista através da tabela merchants
-      const merchantQuery = await db
-        .select({
-          id: merchants.id,
-          user_id: merchants.user_id,
-          store_name: merchants.store_name,
-          user_name: users.name
-        })
-        .from(merchants)
-        .leftJoin(users, eq(merchants.user_id, users.id))
-        .where(eq(merchants.id, merchant_id));
+      // Buscar o lojista
+      const [merchant] = await db.select().from(users).where(eq(users.id, merchant_id));
       
-      if (!merchantQuery || merchantQuery.length === 0) {
+      if (!merchant) {
         return res.status(404).json({ error: "Lojista não encontrado" });
       }
-      
-      const merchant = merchantQuery[0];
       
       try {
         // Verificar se o QR Code já tem uma transação associada
@@ -429,44 +416,17 @@ export function addPaymentRoutes(app: Express) {
           }
         }
         
-        // Buscar configurações de taxa atuais do banco
-        const [settings] = await db.select().from(commissionSettings).limit(1);
-        const platformFeeRate = parseFloat(settings?.platform_fee || "5.0") / 100;
-        const clientCashbackRate = parseFloat(settings?.client_cashback || "2.0") / 100;
-        const referralBonusRate = parseFloat(settings?.referral_bonus || "1.0") / 100;
-        
-        // Calcular todas as taxas conforme configurações do banco
-        const fees = {
-          clientCashback: amountValue * clientCashbackRate,
-          platformFee: amountValue * platformFeeRate,
-          referralBonus: amountValue * referralBonusRate,
-          merchantReceives: amountValue - (amountValue * platformFeeRate)
-        };
-        
-        console.log("Taxas calculadas para transação:", {
-          valor: amountValue,
-          cashback_cliente: fees.clientCashback,
-          taxa_plataforma: fees.platformFee,
-          bonus_indicacao: fees.referralBonus,
-          lojista_recebe: fees.merchantReceives,
-          taxas_aplicadas: {
-            platform_fee_rate: platformFeeRate,
-            client_cashback_rate: clientCashbackRate,
-            referral_bonus_rate: referralBonusRate
-          }
-        });
-        
-        // Criar a transação com todas as taxas aplicadas
+        // Criar a transação - usando o valor do QR code que foi verificado no banco de dados
         const transactionInsert = await db.insert(transactions).values({
           user_id: client.id,
           merchant_id: merchant_id,
           amount: amountValue.toString(),
-          cashback_amount: fees.clientCashback.toString(),
+          cashback_amount: (amountValue * 0.02).toString(), // 2% de cashback
           status: "completed",
           payment_method: selectedPaymentType,
-          description: `Pagamento para ${merchant.store_name || merchant.user_name || 'Lojista'}`,
-          source: "qrcode",
-          qr_code_id: qrCodeId
+          description: `Pagamento para ${merchant.name || 'Lojista'}`,
+          source: "qrcode", // Marca a origem como QR code para facilitar a visualização
+          qr_code_id: qrCodeId // Armazena o ID do QR code na transação
         }).returning();
         
         const transaction = transactionInsert[0];
@@ -539,88 +499,41 @@ export function addPaymentRoutes(app: Express) {
           }
         }
         
-        // Processar saldo do lojista com novo modelo de taxas (95% do valor)
+        // Buscar o cashback do lojista ou criar se não existir
         let merchantCashback;
-        const merchantCashbacks = await db.select().from(cashbacks).where(eq(cashbacks.user_id, merchant.user_id));
-        const merchantReceivesAmount = fees.merchantReceives; // 95% do valor após taxa da plataforma
+        const merchantCashbacks = await db.select().from(cashbacks).where(eq(cashbacks.user_id, merchant_id));
         
         if (merchantCashbacks.length > 0) {
           merchantCashback = merchantCashbacks[0];
-          const newMerchantBalance = parseFloat(merchantCashback.balance) + merchantReceivesAmount;
+          const newMerchantBalance = parseFloat(merchantCashback.balance) + amountValue;
           
-          console.log("Atualizando saldo do lojista (novo modelo - 95%):", {
+          // Atualizar o saldo do lojista
+          console.log("Atualizando saldo do lojista na tabela de cashbacks:", {
             cashback_id: merchantCashback.id,
             valor_anterior: merchantCashback.balance,
-            valor_transacao: amountValue,
-            taxa_plataforma: fees.platformFee,
-            lojista_recebe: merchantReceivesAmount,
-            novo_saldo: newMerchantBalance.toString(),
+            novo_valor: newMerchantBalance.toString(),
             merchant_id
           });
           
           try {
             await db.update(cashbacks)
-              .set({ 
-                balance: newMerchantBalance.toString(),
-                total_earned: (parseFloat(merchantCashback.total_earned) + merchantReceivesAmount).toString()
-              })
+              .set({ balance: newMerchantBalance.toString() })
               .where(eq(cashbacks.id, merchantCashback.id));
               
-            console.log("✅ Saldo do lojista atualizado com novo modelo de taxas");
+            console.log("Saldo do lojista atualizado com sucesso");
           } catch (updateError) {
-            console.error("❌ Erro ao atualizar saldo do lojista:", updateError);
+            console.error("Erro ao atualizar saldo do lojista:", updateError);
             throw new Error("Falha ao atualizar saldo do lojista");
           }
         } else {
           // Criar cashback para o lojista se não existir
           const merchantCashbackInsert = await db.insert(cashbacks).values({
             user_id: merchant_id,
-            balance: merchantReceivesAmount.toString(),
-            total_earned: merchantReceivesAmount.toString()
+            balance: amountValue.toString(),
+            total_earned: amountValue.toString()
           }).returning();
           merchantCashback = merchantCashbackInsert[0];
-          console.log("✅ Cashback do lojista criado com novo modelo (95%)");
         }
-        
-        // Registrar taxa da plataforma no sistema de controle
-        const currentDate = new Date();
-        const currentMonth = currentDate.getMonth() + 1;
-        const currentYear = currentDate.getFullYear();
-        
-        await db.execute(sql`
-          INSERT INTO platform_fees (
-            merchant_id, 
-            transaction_id, 
-            transaction_amount, 
-            platform_fee_rate, 
-            platform_fee_amount, 
-            cashback_paid, 
-            referral_paid, 
-            net_platform_revenue,
-            period_month,
-            period_year,
-            payment_status
-          ) VALUES (
-            ${merchant_id},
-            ${transaction.id},
-            ${amountValue},
-            ${platformFeeRate * 100},
-            ${fees.platformFee},
-            ${fees.clientCashback},
-            ${fees.referralBonus},
-            ${fees.platformFee - fees.clientCashback - fees.referralBonus},
-            ${currentMonth},
-            ${currentYear},
-            'pending'
-          )
-        `);
-        
-        console.log("✅ Taxa da plataforma registrada no sistema de controle:", {
-          transaction_id: transaction.id,
-          merchant_id: merchant_id,
-          platform_fee: fees.platformFee,
-          net_revenue: fees.platformFee - fees.clientCashback - fees.referralBonus
-        });
         
         // Se estiver usando o saldo da carteira, criar um item de transação negativo (débito)
         await db.insert(transactionItems).values({
@@ -631,87 +544,22 @@ export function addPaymentRoutes(app: Express) {
           user_id: client.id,
           item_type: selectedPaymentType === "wallet" ? "wallet_payment" : "bonus_payment",
           amount: (-amountValue).toString(),
-          description: `Pagamento para ${merchant.store_name || merchant.user_name || 'Lojista'}`,
+          description: `Pagamento para ${merchant.name}`,
           status: "completed"
         });
         
-        // Adicionar valor para o lojista (crédito) - apenas o que ele recebe (95%)
+        // Adicionar valor para o lojista (crédito)
         await db.insert(transactionItems).values({
           transaction_id: transaction.id,
           product_name: "Venda QR Code",
           quantity: 1,
-          price: fees.merchantReceives.toString(),
+          price: amountValue.toString(),
           user_id: merchant.id,
           item_type: "merchant_sale",
-          amount: fees.merchantReceives.toString(),
-          description: `Pagamento de ${client.name} (95% após taxa da plataforma)`,
+          amount: amountValue.toString(),
+          description: `Pagamento de ${client.name}`,
           status: "completed"
         });
-
-        // Processar bônus de indicação se o cliente foi indicado
-        const clientData = client as any; // Casting para acessar campo referral
-        if (clientData.referred_by) {
-          console.log("Processando bônus de indicação:", {
-            cliente_id: client.id,
-            indicador_id: clientData.referred_by,
-            bonus_valor: fees.referralBonus
-          });
-
-          // Buscar o indicador
-          const [referrer] = await db
-            .select()
-            .from(users)
-            .where(eq(users.id, clientData.referred_by))
-            .limit(1);
-
-          if (referrer) {
-            // Atualizar saldo do indicador
-            const referrerCashbacks = await db
-              .select()
-              .from(cashbacks)
-              .where(eq(cashbacks.user_id, referrer.id));
-
-            if (referrerCashbacks.length > 0) {
-              const referrerCashback = referrerCashbacks[0];
-              const newReferrerBalance = parseFloat(referrerCashback.balance) + fees.referralBonus;
-
-              await db.update(cashbacks)
-                .set({ 
-                  balance: newReferrerBalance.toString(),
-                  total_earned: (parseFloat(referrerCashback.total_earned) + fees.referralBonus).toString()
-                })
-                .where(eq(cashbacks.id, referrerCashback.id));
-
-              console.log("✅ Bônus de indicação processado:", {
-                indicador: referrer.name,
-                valor_bonus: fees.referralBonus,
-                novo_saldo: newReferrerBalance
-              });
-            } else {
-              // Criar cashback para o indicador se não existir
-              await db.insert(cashbacks).values({
-                user_id: referrer.id,
-                balance: fees.referralBonus.toString(),
-                total_earned: fees.referralBonus.toString()
-              });
-
-              console.log("✅ Cashback do indicador criado com bônus de indicação");
-            }
-
-            // Registrar a transação de bônus de indicação
-            await db.insert(transactionItems).values({
-              transaction_id: transaction.id,
-              product_name: "Bônus de Indicação",
-              quantity: 1,
-              price: fees.referralBonus.toString(),
-              user_id: referrer.id,
-              item_type: "referral_bonus",
-              amount: fees.referralBonus.toString(),
-              description: `Bônus por indicação de ${client.name}`,
-              status: "completed"
-            });
-          }
-        }
         
         // Atualizar o status do QR Code
         console.log("Marcando QR Code como usado:", {
@@ -742,7 +590,7 @@ export function addPaymentRoutes(app: Express) {
           transaction_id: transaction.id,
           amount: amountValue,
           payment_type: selectedPaymentType,
-          merchant_name: merchant.store_name || merchant.user_name || 'Lojista',
+          merchant_name: merchant.name,
           date: new Date().toISOString()
         });
       } catch (txError: unknown) {

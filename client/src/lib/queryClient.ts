@@ -37,10 +37,6 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey[0] as string, {
       credentials: "include",
-      headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -54,28 +50,13 @@ export const getQueryFn: <T>(options: {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      queryFn: async ({ queryKey }) => {
-        const response = await fetch(queryKey[0] as string, {
-          credentials: 'include',
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        });
-        
-        if (response.status === 401) {
-          throw new Error('401: Unauthorized');
-        }
-        
-        if (!response.ok) {
-          throw new Error(`${response.status}: ${response.statusText}`);
-        }
-        
-        return response.json();
-      },
-      retry: false,
+      queryFn: getQueryFn({ on401: "throw" }),
+      refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: 30000
+      refetchOnMount: false, // Evita refetches quando o componente é montado
+      staleTime: 5 * 60 * 1000, // 5 minutos - dados são considerados "frescos" por 5 minutos
+      gcTime: 10 * 60 * 1000, // 10 minutos - dados ficam em cache por 10 minutos (antes era cacheTime)
+      retry: false,
     },
     mutations: {
       retry: false,

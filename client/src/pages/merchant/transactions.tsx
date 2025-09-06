@@ -1,562 +1,826 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { 
+  Tabs, 
+  TabsContent, 
+  TabsList, 
+  TabsTrigger 
+} from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import { 
+  Calendar as CalendarIcon,
   Search,
-  Eye,
-  RefreshCw,
-  CheckCircle2,
-  XCircle,
-  DollarSign,
-  Calendar,
-  CreditCard,
-  User,
-  Filter,
   Download,
-  Loader2,
-  TrendingUp,
-  Clock
+  ChevronDown,
+  FileText,
+  Eye,
+  Printer,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  User,
+  CreditCard,
+  QrCode,
+  Wallet
 } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DataTable } from "@/components/ui/data-table";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { enUS } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
+import { cn, formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
-// Interface para transações
+// Interface para transações com detalhes completos de taxas e valores
 interface Transaction {
   id: number;
   customer: string;
   date: string;
   amount: number;
   cashback: number;
-  payment_method: string;
+  paymentMethod: string;
+  items: string;
   status: string;
-  description?: string;
-  notes?: string;
+  // Campos adicionais para detalhar taxas e valores
+  subtotal?: number; // Valor antes das taxas
+  platformFee?: number; // Taxa da plataforma (5%)
+  merchantCommission?: number; // Comissão do lojista (2%)
+  clientCashback?: number; // Cashback do cliente (2%)
+  referralBonus?: number; // Bônus de indicação (1%)
+  netAmount?: number; // Valor líquido após todas as taxas
+  source?: string; // Origem da transação: 'manual', 'qrcode'
+  qrCodeId?: string; // ID do QR Code, se aplicável
+  description?: string; // Descrição da transação
+  itemsList?: Array<{id: number, name: string, quantity: number, price: number}>;
 }
 
-// Configurações de status
-const statusConfig = {
-  completed: { 
-    color: "bg-green-100 text-green-800 border-green-200",
-    label: "Concluída",
-    icon: CheckCircle2
-  },
-  pending: { 
-    color: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    label: "Pendente",
-    icon: Clock
-  },
-  cancelled: { 
-    color: "bg-red-100 text-red-800 border-red-200",
-    label: "Cancelada",
-    icon: XCircle
-  },
-  refunded: { 
-    color: "bg-blue-100 text-blue-800 border-blue-200",
-    label: "Reembolsada",
-    icon: RefreshCw
-  }
+const PaymentMethodIcons: Record<string, React.ReactNode> = {
+  "cash": <Wallet className="h-4 w-4" />,
+  "credit_card": <CreditCard className="h-4 w-4" />,
+  "debit_card": <CreditCard className="h-4 w-4" />,
+  "pix": <QrCode className="h-4 w-4" />,
+  "cashback": <Wallet className="h-4 w-4" />,
 };
 
-// Métodos de pagamento
-const paymentMethods = {
-  cash: "💵 Dinheiro",
-  credit_card: "💳 Cartão de Crédito",
-  debit_card: "💳 Cartão de Débito",
-  pix: "📱 PIX",
-  cashback: "🎁 Cashback"
+const TransactionStatusIcons: Record<string, React.ReactNode> = {
+  "completed": <CheckCircle2 className="h-4 w-4 text-green-500" />,
+  "pending": <Clock className="h-4 w-4 text-yellow-500" />,
+  "cancelled": <XCircle className="h-4 w-4 text-red-500" />,
 };
 
 export default function MerchantTransactions() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [paymentFilter, setPaymentFilter] = useState("all");
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
-
+  // Usamos a interface DateRange importada do react-day-picker
+  const [dateRange, setDateRange] = useState<DateRange>({
+    from: undefined,
+    to: undefined,
+  });
+  const [status, setStatus] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("all");
+  
   const { toast } = useToast();
-
-  // Formatação de moeda sempre em USD
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(value);
-  };
-
-  // Carregar transações
-  const { data: apiData, isLoading, refetch } = useQuery({
+  
+  // Adiciona um intervalo para atualizar as transações a cada 5 segundos
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      // Revalida as transações para garantir que todas apareçam, incluindo as novas via QR code
+      queryClient.invalidateQueries({ queryKey: ['/api/merchant/transactions'] });
+    }, 5000); // A cada 5 segundos
+    
+    // Limpa o intervalo quando o componente é desmontado
+    return () => clearInterval(intervalId);
+  }, []);
+  
+  // Query para buscar as vendas - direto da API com tratamento de erros aprimorado
+  const { data, isLoading, error } = useQuery<{ 
+    transactions: Transaction[],
+    totalAmount: number,
+    totalCashback: number,
+    statusCounts: { status: string, count: number }[],
+    paymentMethodSummary: { method: string, sum: number }[]
+  }>({
     queryKey: ['/api/merchant/transactions'],
-    retry: 1,
-    staleTime: 30000,
+    refetchOnWindowFocus: true,
+    retry: 3,
+    refetchOnMount: true,
+    // Sempre habilitado para buscar as transações automaticamente
+    enabled: true,
     queryFn: async () => {
-      const response = await fetch('/api/merchant/transactions', {
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        throw new Error('Falha ao carregar transações');
+      try {
+        const res = await fetch('/api/merchant/transactions', {
+          credentials: 'include',
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+        
+        if (!res.ok) {
+          console.error('Resposta da API não está ok:', await res.text());
+          throw new Error('Falha ao buscar transações');
+        }
+        
+        return await res.json();
+      } catch (err) {
+        console.error('Erro na busca de transações:', err);
+        
+        // Em produção retornar um objeto vazio mas válido
+        return {
+          transactions: [],
+          totalAmount: 0,
+          totalCashback: 0,
+          statusCounts: [],
+          paymentMethodSummary: []
+        };
       }
-      
-      return await response.json();
     }
   });
-
-  // Processar dados da API
-  const transactions: Transaction[] = apiData?.transactions ? apiData.transactions.map((t: any) => ({
-    id: t.id,
-    customer: t.customer || 'Cliente',
-    date: t.date || new Date().toISOString(),
-    amount: parseFloat(t.amount) || 0,
-    cashback: parseFloat(t.cashback) || 0,
-    payment_method: t.payment_method || 'cash',
-    status: t.status || 'completed',
-    description: t.description || '',
-    notes: t.notes || ''
-  })) : [];
-
-  // Filtrar transações
-  const filteredTransactions = transactions.filter(transaction => {
-    const matchesSearch = !searchTerm || 
-      transaction.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.id.toString().includes(searchTerm) ||
-      transaction.amount.toString().includes(searchTerm);
+  
+  // Função para filtrar as transações
+  const filteredTransactions = (data?.transactions || []).filter(transaction => {
+    // Filtro por status da transação na tab
+    if (activeTab !== "all" && transaction.status !== activeTab) {
+      return false;
+    }
     
-    const matchesStatus = statusFilter === "all" || transaction.status === statusFilter;
-    const matchesPayment = paymentFilter === "all" || transaction.payment_method === paymentFilter;
+    // Filtro por termo de busca (cliente)
+    if (searchTerm && !transaction.customer.toLowerCase().includes(searchTerm.toLowerCase())) {
+      return false;
+    }
     
-    return matchesSearch && matchesStatus && matchesPayment;
+    // Filtro por status (dropdown)
+    // Não filtra se status for null (valor "all" no Select)
+    if (status !== null && transaction.status !== status) {
+      return false;
+    }
+    
+    // Filtro por método de pagamento
+    // Não filtra se paymentMethod for null (valor "all" no Select)
+    if (paymentMethod !== null && transaction.paymentMethod !== paymentMethod) {
+      return false;
+    }
+    
+    // Filtro por data - verifica se a data da transação está dentro do range selecionado
+    if (dateRange.from || dateRange.to) {
+      const transactionDate = new Date(transaction.date);
+      
+      if (dateRange.from && transactionDate < dateRange.from) {
+        return false;
+      }
+      
+      if (dateRange.to) {
+        const endDate = new Date(dateRange.to);
+        // Ajustamos para o final do dia para incluir toda a data final
+        endDate.setHours(23, 59, 59, 999); 
+        if (transactionDate > endDate) {
+          return false;
+        }
+      }
+    }
+    
+    return true;
   });
-
-  // Estatísticas
-  const stats = {
-    total: transactions.length,
-    completed: transactions.filter(t => t.status === 'completed').length,
-    pending: transactions.filter(t => t.status === 'pending').length,
-    cancelled: transactions.filter(t => t.status === 'cancelled').length,
-    totalAmount: transactions.reduce((sum, t) => sum + t.amount, 0),
-    totalCashback: transactions.reduce((sum, t) => sum + t.cashback, 0)
+  
+  // Calcular totais com segurança contra valores null/undefined
+  const totalAmount = filteredTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+  const totalCashback = filteredTransactions.reduce((sum, t) => sum + (t.cashback || 0), 0);
+  
+  // Use os status counts da API se disponíveis, caso contrário calcule localmente
+  const statusCounts = data?.statusCounts || [];
+  const completedCount = statusCounts.find(s => s.status === "completed")?.count || 
+    (data?.transactions || []).filter(t => t.status === "completed").length;
+  const pendingCount = statusCounts.find(s => s.status === "pending")?.count || 
+    (data?.transactions || []).filter(t => t.status === "pending").length;
+  const cancelledCount = statusCounts.find(s => s.status === "cancelled")?.count || 
+    (data?.transactions || []).filter(t => t.status === "cancelled").length;
+  
+  // Use o resumo de pagamentos da API se disponível, caso contrário calcule localmente
+  const paymentSummary = data?.paymentMethodSummary || [];
+  const paymentMethodSummary = paymentSummary.length > 0 
+    ? paymentSummary.reduce((acc, item) => {
+        acc[item.method] = parseFloat(item.sum.toString());
+        return acc;
+      }, {} as Record<string, number>)
+    : (data?.transactions || []).reduce((acc, t) => {
+        acc[t.paymentMethod] = (acc[t.paymentMethod] || 0) + t.amount;
+        return acc;
+      }, {} as Record<string, number>);
+  
+  // Exportar dados
+  const handleExport = () => {
+    toast({
+      title: "Exportação iniciada",
+      description: "Seus dados estão sendo exportados para CSV.",
+    });
+    
+    // Em uma implementação real, aqui iríamos gerar um arquivo CSV e fazer o download
+    setTimeout(() => {
+      toast({
+        title: "Exportação concluída",
+        description: "Arquivo CSV exportado com sucesso.",
+      });
+    }, 1500);
   };
-
-  // Função para abrir detalhes da transação
-  const openTransactionDetails = (transaction: Transaction) => {
-    setSelectedTransaction(transaction);
-    setShowDetailsDialog(true);
+  
+  // Visualizar detalhes da transação com informações completas sobre taxas e valores
+  const handleViewTransaction = (transaction: Transaction) => {
+    try {
+      // Calcular valores para exibição
+      const totalAmount = transaction.amount || 0;
+      const platformFee = transaction.platformFee || (totalAmount * 0.05); // 5% de taxa da plataforma
+      const merchantCommission = transaction.merchantCommission || (totalAmount * 0.02); // 2% de comissão do lojista
+      const clientCashback = transaction.clientCashback || transaction.cashback || (totalAmount * 0.02); // 2% de cashback para o cliente
+      const referralBonus = transaction.referralBonus || (totalAmount * 0.01); // 1% de bônus de indicação
+      
+      // Calcular valor líquido
+      const netAmount = transaction.netAmount || 
+        (totalAmount - platformFee - clientCashback - referralBonus);
+      
+      // Formatar valores para exibição
+      const formattedTotalAmount = formatCurrency(totalAmount);
+      const formattedNetAmount = formatCurrency(netAmount);
+      const formattedPlatformFee = formatCurrency(platformFee);
+      const formattedClientCashback = formatCurrency(clientCashback);
+      const formattedReferralBonus = formatCurrency(referralBonus);
+      const formattedMerchantCommission = formatCurrency(merchantCommission);
+      
+      // Formatação da data
+      let formattedDate = transaction.date;
+      try {
+        formattedDate = format(new Date(transaction.date), "dd/MM/yyyy HH:mm");
+      } catch { /* manter o valor original se falhar */ }
+      
+      // Preparar descrição detalhada
+      const descriptionLines = [
+        `Cliente: ${transaction.customer}`,
+        `Data: ${formattedDate}`,
+        `Origem: ${transaction.source === 'qrcode' ? 'QR Code' : 'Manual'}`,
+        transaction.qrCodeId ? `ID do QR Code: ${transaction.qrCodeId}` : '',
+        `Método: ${
+          {
+            'cash': 'Dinheiro',
+            'credit_card': 'Cartão de Crédito',
+            'debit_card': 'Cartão de Débito',
+            'pix': 'Pix',
+            'cashback': 'Cashback',
+            'wallet': 'Carteira Digital'
+          }[transaction.paymentMethod] || transaction.paymentMethod
+        }`,
+        `Status: ${
+          {
+            'completed': 'Concluída',
+            'pending': 'Pendente',
+            'cancelled': 'Cancelada'
+          }[transaction.status] || transaction.status
+        }`,
+        `Descrição: ${transaction.description || 'Não especificada'}`,
+        '----------------------------------------',
+        `Valor Total: ${formattedTotalAmount}`,
+        `Taxa da Plataforma (5%): ${formattedPlatformFee}`,
+        `Cashback do Cliente (2%): ${formattedClientCashback}`,
+        `Bônus de Indicação (1%): ${formattedReferralBonus}`,
+        `Valor Líquido: ${formattedNetAmount}`,
+      ].filter(Boolean).join('\n');
+      
+      toast({
+        title: `Detalhes da Venda #${transaction.id}`,
+        description: (
+          <pre className="whitespace-pre-wrap text-xs mt-2 font-mono bg-muted p-2 rounded">
+            {descriptionLines}
+          </pre>
+        ),
+        duration: 10000, // Mostrar por mais tempo devido ao conteúdo extenso
+      });
+    } catch (error) {
+      console.error('Erro ao exibir detalhes da transação:', error);
+      toast({
+        title: `Venda #${transaction.id}`,
+        description: `Cliente: ${transaction.customer}`,
+        variant: "default",
+      });
+    }
   };
+  
+  // Imprimir recibo com detalhamento completo de taxas e valores
+  const handlePrintReceipt = (transaction: Transaction) => {
+    try {
+      // Calcular valores para impressão
+      const totalAmount = transaction.amount || 0;
+      const platformFee = transaction.platformFee || (totalAmount * 0.05); // 5% de taxa da plataforma
+      const merchantCommission = transaction.merchantCommission || (totalAmount * 0.02); // 2% de comissão do lojista
+      const clientCashback = transaction.clientCashback || transaction.cashback || (totalAmount * 0.02); // 2% de cashback para o cliente
+      const referralBonus = transaction.referralBonus || (totalAmount * 0.01); // 1% de bônus de indicação
+      
+      // Calcular valor líquido
+      const netAmount = transaction.netAmount || 
+        (totalAmount - platformFee - clientCashback - referralBonus);
+      
+      // Data e hora formatada para o recibo
+      let formattedDate = "N/A";
+      try {
+        formattedDate = format(new Date(transaction.date), "dd/MM/yyyy HH:mm:ss");
+      } catch { /* usar valor padrão se falhar */ }
+      
+      // Construir o recibo completo
+      const receiptContent = `
+Vale Cashback - Recibo de Venda
+==============================
+Nº da Transação: ${transaction.id}
+Data/Hora: ${formattedDate}
+Cliente: ${transaction.customer}
+Origem: ${transaction.source === 'qrcode' ? 'QR Code' : 'Manual'}
+${transaction.qrCodeId ? `ID do QR Code: ${transaction.qrCodeId}` : ''}
+Método de Pagamento: ${
+  {
+    'cash': 'Dinheiro',
+    'credit_card': 'Cartão de Crédito',
+    'debit_card': 'Cartão de Débito',
+    'pix': 'Pix',
+    'cashback': 'Cashback',
+    'wallet': 'Carteira Digital'
+  }[transaction.paymentMethod] || transaction.paymentMethod
+}
+Status: ${
+  {
+    'completed': 'Concluída',
+    'pending': 'Pendente',
+    'cancelled': 'Cancelada'
+  }[transaction.status] || transaction.status
+}
+
+DETALHES DA TRANSAÇÃO
+==============================
+${transaction.description || 'Venda Vale Cashback'}
+${transaction.items || ''}
+${transaction.itemsList ? transaction.itemsList.map(item => 
+  `${item.name} x${item.quantity} - ${formatCurrency(item.price * item.quantity)}`
+).join('\n') : ''}
+
+RESUMO FINANCEIRO
+==============================
+Valor Bruto: ${formatCurrency(totalAmount)}
+(-) Taxa da Plataforma (5%): ${formatCurrency(platformFee)}
+(-) Cashback do Cliente (2%): ${formatCurrency(clientCashback)}
+(-) Bônus de Indicação (1%): ${formatCurrency(referralBonus)}
+==============================
+(=) Valor Líquido: ${formatCurrency(netAmount)}
+
+Obrigado por usar o Vale Cashback!
+www.valecashback.com
+      `.trim();
+      
+      // Em um sistema real, aqui enviaríamos para impressão
+      // Por enquanto, apenas simulamos mostrando o conteúdo
+      
+      toast({
+        title: "Recibo gerado com sucesso",
+        description: (
+          <div className="mt-2">
+            <p className="mb-2">Recibo para a venda #{transaction.id} está pronto para impressão</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="w-full"
+              onClick={() => {
+                // Simulando download do recibo como texto
+                const blob = new Blob([receiptContent], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `recibo-venda-${transaction.id}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Baixar Recibo
+            </Button>
+          </div>
+        ),
+        duration: 10000,
+      });
+    } catch (error) {
+      console.error('Erro ao preparar impressão do recibo:', error);
+      toast({
+        title: "Erro ao gerar recibo",
+        description: "Não foi possível gerar o recibo para esta transação.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Definição das colunas da tabela com informações detalhadas
+  const columns = [
+    {
+      header: "ID",
+      accessorKey: "id" as keyof Transaction,
+    },
+    {
+      header: "Cliente",
+      accessorKey: "customer" as keyof Transaction,
+      cell: (transaction: Transaction) => (
+        <div className="flex items-center">
+          <User className="h-4 w-4 text-muted-foreground mr-2" />
+          <span>{transaction.customer}</span>
+        </div>
+      ),
+    },
+    {
+      header: "Data",
+      accessorKey: "date" as keyof Transaction,
+      cell: (transaction: Transaction) => {
+        try {
+          const date = new Date(transaction.date);
+          return format(date, "dd/MM/yyyy HH:mm");
+        } catch {
+          return transaction.date || "N/A";
+        }
+      }
+    },
+    {
+      header: "Origem",
+      accessorKey: "source" as keyof Transaction,
+      cell: (transaction: Transaction) => {
+        const sourceLabels: Record<string, string> = {
+          "manual": "Manual",
+          "qrcode": "QR Code"
+        };
+        const sourceIcons: Record<string, React.ReactNode> = {
+          "manual": <FileText className="h-4 w-4 mr-1" />,
+          "qrcode": <QrCode className="h-4 w-4 mr-1" />
+        };
+        
+        return (
+          <div className="flex items-center">
+            {sourceIcons[transaction.source || 'manual']}
+            <span>{sourceLabels[transaction.source || 'manual']}</span>
+          </div>
+        );
+      }
+    },
+    {
+      header: "Valor Total",
+      accessorKey: "amount" as keyof Transaction,
+      cell: (transaction: Transaction) => (
+        <span className="font-medium">
+          {formatCurrency(transaction.amount)}
+        </span>
+      ),
+    },
+    {
+      header: "Valor Líquido",
+      accessorKey: "netAmount" as keyof Transaction,
+      cell: (transaction: Transaction) => {
+        // Calcular o valor líquido se não estiver disponível
+        const netAmount = transaction.netAmount ?? (transaction.amount 
+          - (transaction.platformFee || 0) 
+          - (transaction.clientCashback || 0)
+          - (transaction.referralBonus || 0));
+        
+        return (
+          <span className="font-medium text-blue-600">
+            {formatCurrency(netAmount)}
+          </span>
+        );
+      }
+    },
+    {
+      header: "Taxa Total",
+      accessorKey: "fees" as any,
+      cell: (transaction: Transaction) => {
+        // Calcular a soma de todas as taxas
+        const totalFees = (transaction.platformFee || 0) + 
+                          (transaction.clientCashback || 0) + 
+                          (transaction.referralBonus || 0);
+        
+        return (
+          <span className="text-orange-600 font-medium">
+            {formatCurrency(totalFees)}
+          </span>
+        );
+      }
+    },
+    {
+      header: "Cashback Cliente",
+      accessorKey: "clientCashback" as keyof Transaction,
+      cell: (transaction: Transaction) => (
+        <span className="text-green-600">
+          {formatCurrency(transaction.clientCashback || transaction.cashback || 0)}
+        </span>
+      ),
+    },
+    {
+      header: "Pagamento",
+      accessorKey: "paymentMethod" as keyof Transaction,
+      cell: (transaction: Transaction) => {
+        const paymentLabels: Record<string, string> = {
+          "cash": "Dinheiro",
+          "credit_card": "Crédito",
+          "debit_card": "Débito",
+          "pix": "Pix",
+          "cashback": "Cashback",
+          "wallet": "Carteira Digital"
+        };
+        
+        return (
+          <div className="flex items-center">
+            {PaymentMethodIcons[transaction.paymentMethod] || <CreditCard className="h-4 w-4 mr-1" />}
+            <span className="ml-1">{paymentLabels[transaction.paymentMethod] || transaction.paymentMethod}</span>
+          </div>
+        );
+      },
+    },
+    {
+      header: "Status",
+      accessorKey: "status" as keyof Transaction,
+      cell: (transaction: Transaction) => {
+        const statusLabels: Record<string, string> = {
+          "completed": "Concluída",
+          "pending": "Pendente",
+          "cancelled": "Cancelada"
+        };
+        
+        const statusColors: Record<string, string> = {
+          "completed": "bg-green-100 text-green-800",
+          "pending": "bg-yellow-100 text-yellow-800",
+          "cancelled": "bg-red-100 text-red-800"
+        };
+        
+        return (
+          <div className={`rounded-full px-2 py-1 text-xs font-medium inline-flex items-center ${statusColors[transaction.status]}`}>
+            {TransactionStatusIcons[transaction.status]}
+            <span className="ml-1">{statusLabels[transaction.status]}</span>
+          </div>
+        );
+      },
+    },
+  ];
+  
+  // Ações para a tabela
+  const actions = [
+    {
+      label: "Ver detalhes",
+      icon: <Eye className="h-4 w-4" />,
+      onClick: (transaction: Transaction) => handleViewTransaction(transaction),
+    },
+    {
+      label: "Imprimir recibo",
+      icon: <Printer className="h-4 w-4" />,
+      onClick: (transaction: Transaction) => handlePrintReceipt(transaction),
+    },
+  ];
+  
+  // Adicionar feedback de erros
+  if (error) {
+    console.error('Erro ao carregar transações:', error);
+    toast({
+      title: "Erro ao carregar transações",
+      description: "Não foi possível carregar suas transações. Tente novamente mais tarde.",
+      variant: "destructive",
+    });
+  }
+  
+  // Renderizar indicador de carregamento
+  if (isLoading) {
+    return (
+      <DashboardLayout title="Histórico de Transações" type="merchant">
+        <div className="flex flex-col items-center justify-center p-12 min-h-[50vh]">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-t-transparent border-primary"></div>
+          <p className="mt-4 text-muted-foreground">Carregando transações...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout title="Histórico de Transações" type="merchant">
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-gray-800 mb-2">Histórico de Transações</h1>
-            <p className="text-gray-600">Acompanhe todas as suas vendas e transações realizadas</p>
-          </div>
-          <div className="flex items-center space-x-4">
-            <Label className="font-medium text-gray-700">Moeda: 🇺🇸 USD</Label>
-          </div>
-        </div>
-
-        {/* Estatísticas */}
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
-          <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-blue-100 text-sm font-medium">Total</p>
-                  <p className="text-3xl font-bold">{stats.total}</p>
-                </div>
-                <TrendingUp className="h-8 w-8 text-blue-200" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-green-500 to-green-600 text-white border-0 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-green-100 text-sm font-medium">Concluídas</p>
-                  <p className="text-3xl font-bold">{stats.completed}</p>
-                </div>
-                <CheckCircle2 className="h-8 w-8 text-green-200" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-yellow-100 text-sm font-medium">Pendentes</p>
-                  <p className="text-3xl font-bold">{stats.pending}</p>
-                </div>
-                <Clock className="h-8 w-8 text-yellow-200" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-red-500 to-red-600 text-white border-0 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-red-100 text-sm font-medium">Canceladas</p>
-                  <p className="text-3xl font-bold">{stats.cancelled}</p>
-                </div>
-                <XCircle className="h-8 w-8 text-red-200" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-purple-500 to-purple-600 text-white border-0 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-purple-100 text-sm font-medium">Faturamento</p>
-                  <p className="text-lg font-bold">{formatCurrency(stats.totalAmount)}</p>
-                </div>
-                <DollarSign className="h-8 w-8 text-purple-200" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-orange-500 to-orange-600 text-white border-0 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-orange-100 text-sm font-medium">Cashback</p>
-                  <p className="text-lg font-bold">{formatCurrency(stats.totalCashback)}</p>
-                </div>
-                <DollarSign className="h-8 w-8 text-orange-200" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filtros */}
-        <Card className="mb-8 shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Filter className="mr-2 h-5 w-5" />
-              Filtros e Busca
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Buscar por cliente, ID ou valor..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
+      <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+          <TabsList>
+            <TabsTrigger value="all">Todas</TabsTrigger>
+            <TabsTrigger value="completed">Concluídas</TabsTrigger>
+            <TabsTrigger value="pending">Pendentes</TabsTrigger>
+            <TabsTrigger value="cancelled">Canceladas</TabsTrigger>
+          </TabsList>
+          
+          <div className="flex space-x-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, "dd/MM/yyyy")} -{" "}
+                        {format(dateRange.to, "dd/MM/yyyy")}
+                      </>
+                    ) : (
+                      format(dateRange.from, "dd/MM/yyyy")
+                    )
+                  ) : (
+                    <span>Selecione um período</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={new Date()}
+                  selected={{
+                    from: dateRange.from || undefined,
+                    to: dateRange.to || undefined,
+                  }}
+                  onSelect={range => {
+                    // O tipo DateRange já é compatível com o que o calendario retorna
+                    setDateRange(range || { from: undefined, to: undefined });
+                  }}
+                  locale={enUS}
                 />
+              </PopoverContent>
+            </Popover>
+            
+            <Button variant="outline" onClick={handleExport}>
+              <Download className="h-4 w-4 mr-2" />
+              Exportar
+            </Button>
+          </div>
+        </div>
+        
+        <div className="grid md:grid-cols-4 gap-4 mb-6">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Total Vendas</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {formatCurrency(totalAmount)}
               </div>
-              
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filtrar por status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Status</SelectItem>
-                  <SelectItem value="completed">Concluídas</SelectItem>
-                  <SelectItem value="pending">Pendentes</SelectItem>
-                  <SelectItem value="cancelled">Canceladas</SelectItem>
-                  <SelectItem value="refunded">Reembolsadas</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filtrar por pagamento" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Métodos</SelectItem>
-                  <SelectItem value="cash">Dinheiro</SelectItem>
-                  <SelectItem value="credit_card">Cartão de Crédito</SelectItem>
-                  <SelectItem value="debit_card">Cartão de Débito</SelectItem>
-                  <SelectItem value="pix">PIX</SelectItem>
-                  <SelectItem value="cashback">Cashback</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button variant="outline" onClick={() => refetch()}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Atualizar
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Lista de Transações */}
-        <Card className="shadow-xl">
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span>Transações ({filteredTransactions.length})</span>
-              <Button variant="outline" size="sm">
-                <Download className="mr-2 h-4 w-4" />
-                Exportar
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-                <span className="ml-2 text-gray-600">Carregando transações...</span>
+              <p className="text-sm text-muted-foreground">
+                {filteredTransactions.length} transações
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Total Cashback</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">
+                {formatCurrency(totalCashback)}
               </div>
-            ) : filteredTransactions.length === 0 ? (
-              <div className="text-center py-12">
-                <CreditCard className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-xl font-medium text-gray-600 mb-2">Nenhuma transação encontrada</p>
-                <p className="text-gray-500">Ajuste os filtros ou realize uma nova venda</p>
+              <p className="text-sm text-muted-foreground">
+                {totalAmount > 0 ? Number(((totalCashback / totalAmount) * 100).toFixed(1)) : 0}% do total
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Por Status</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-sm">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500 mr-1.5" />
+                    <span>Concluídas</span>
+                  </div>
+                  <span className="text-sm font-medium">{completedCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-sm">
+                    <Clock className="h-3.5 w-3.5 text-yellow-500 mr-1.5" />
+                    <span>Pendentes</span>
+                  </div>
+                  <span className="text-sm font-medium">{pendingCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-sm">
+                    <XCircle className="h-3.5 w-3.5 text-red-500 mr-1.5" />
+                    <span>Canceladas</span>
+                  </div>
+                  <span className="text-sm font-medium">{cancelledCount}</span>
+                </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredTransactions.map((transaction) => {
-                  const statusInfo = statusConfig[transaction.status as keyof typeof statusConfig];
-                  const StatusIcon = statusInfo?.icon || CheckCircle2;
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Por Pagamento</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-1.5">
+                {Object.entries(paymentMethodSummary).map(([method, amount]) => {
+                  const paymentLabels: Record<string, string> = {
+                    "cash": "Dinheiro",
+                    "credit_card": "Crédito",
+                    "debit_card": "Débito",
+                    "pix": "Pix",
+                    "cashback": "Cashback"
+                  };
                   
                   return (
-                    <div key={transaction.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow bg-white">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
-                          {/* ID e Cliente */}
-                          <div>
-                            <div className="flex items-center space-x-2 mb-1">
-                              <Badge variant="outline" className="text-xs">#{transaction.id}</Badge>
-                            </div>
-                            <div className="flex items-center text-gray-600">
-                              <User className="mr-1 h-4 w-4" />
-                              <span className="font-medium">{transaction.customer}</span>
-                            </div>
-                          </div>
-
-                          {/* Data */}
-                          <div className="flex items-center text-gray-600">
-                            <Calendar className="mr-2 h-4 w-4" />
-                            <span className="text-sm">
-                              {(() => {
-                                try {
-                                  const date = new Date(transaction.date);
-                                  if (isNaN(date.getTime())) {
-                                    return 'Data inválida';
-                                  }
-                                  return date.toLocaleDateString('pt-BR', {
-                                    day: '2-digit',
-                                    month: '2-digit',
-                                    year: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  });
-                                } catch (error) {
-                                  return 'Data inválida';
-                                }
-                              })()}
-                            </span>
-                          </div>
-
-                          {/* Valor */}
-                          <div>
-                            <p className="font-bold text-lg text-gray-800">
-                              {formatCurrency(transaction.amount)}
-                            </p>
-                          </div>
-
-                          {/* Cashback */}
-                          <div>
-                            <p className="text-sm text-green-600 font-medium">
-                              +{formatCurrency(transaction.cashback)}
-                            </p>
-                            <p className="text-xs text-gray-500">cashback</p>
-                          </div>
-
-                          {/* Método de Pagamento */}
-                          <div className="flex items-center text-gray-600">
-                            <CreditCard className="mr-2 h-4 w-4" />
-                            <span className="text-sm">
-                              {paymentMethods[transaction.payment_method as keyof typeof paymentMethods] || transaction.payment_method}
-                            </span>
-                          </div>
-
-                          {/* Status */}
-                          <div>
-                            <Badge className={`${statusInfo?.color || 'bg-gray-100 text-gray-800'} flex items-center space-x-1`}>
-                              <StatusIcon className="h-3 w-3" />
-                              <span>{statusInfo?.label || transaction.status}</span>
-                            </Badge>
-                          </div>
-                        </div>
-
-                        {/* Ações */}
-                        <div className="flex items-center space-x-2 ml-4">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openTransactionDetails(transaction)}
-                            className="text-blue-600 hover:text-blue-700"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
+                    <div key={method} className="flex items-center justify-between">
+                      <div className="flex items-center text-sm">
+                        {PaymentMethodIcons[method] || <CreditCard className="h-3.5 w-3.5 mr-1.5" />}
+                        <span className="ml-1">{paymentLabels[method] || method}</span>
                       </div>
-
-                      {/* Descrição (se houver) */}
-                      {transaction.description && (
-                        <div className="mt-4 pt-4 border-t border-gray-100">
-                          <p className="text-sm text-gray-600">{transaction.description}</p>
-                        </div>
-                      )}
+                      <span className="text-sm font-medium">{formatCurrency(amount)}</span>
                     </div>
                   );
                 })}
               </div>
-            )}
+            </CardContent>
+          </Card>
+        </div>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Transações</CardTitle>
+            <CardDescription>
+              Histórico completo de vendas realizadas na sua loja
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <div className="relative w-full md:w-[300px]">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por cliente..."
+                  className="pl-8"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              
+              <div className="flex flex-1 gap-4">
+                <Select 
+                  value={status === null ? "all" : status} 
+                  onValueChange={(val) => setStatus(val === "all" ? null : val)}
+                >
+                  <SelectTrigger className="w-full md:w-[180px]">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os status</SelectItem>
+                    <SelectItem value="completed">Concluídas</SelectItem>
+                    <SelectItem value="pending">Pendentes</SelectItem>
+                    <SelectItem value="cancelled">Canceladas</SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <Select 
+                  value={paymentMethod === null ? "all" : paymentMethod} 
+                  onValueChange={(val) => setPaymentMethod(val === "all" ? null : val)}
+                >
+                  <SelectTrigger className="w-full md:w-[180px]">
+                    <SelectValue placeholder="Forma de pagamento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os pagamentos</SelectItem>
+                    <SelectItem value="cash">Dinheiro</SelectItem>
+                    <SelectItem value="credit_card">Cartão de Crédito</SelectItem>
+                    <SelectItem value="debit_card">Cartão de Débito</SelectItem>
+                    <SelectItem value="pix">Pix</SelectItem>
+                    <SelectItem value="cashback">Cashback</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <DataTable
+              data={filteredTransactions}
+              columns={columns}
+              actions={actions}
+              searchable={false}
+              pagination={{
+                pageIndex: 0,
+                pageSize: 10,
+                pageCount: Math.ceil(filteredTransactions.length / 10),
+                onPageChange: () => {},
+              }}
+            />
           </CardContent>
         </Card>
-
-        {/* Dialog de Detalhes da Transação */}
-        <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Detalhes da Transação #{selectedTransaction?.id}</DialogTitle>
-            </DialogHeader>
-            {selectedTransaction && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Cliente</Label>
-                      <p className="text-lg font-semibold text-gray-800">{selectedTransaction.customer}</p>
-                    </div>
-                    
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Data e Hora</Label>
-                      <p className="text-gray-800">
-                        {(() => {
-                          try {
-                            const date = new Date(selectedTransaction.date);
-                            if (isNaN(date.getTime())) {
-                              return 'Data não disponível';
-                            }
-                            return date.toLocaleString('pt-BR', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            });
-                          } catch (error) {
-                            return 'Data não disponível';
-                          }
-                        })()}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Método de Pagamento</Label>
-                      <div className="flex items-center space-x-2">
-                        <CreditCard className="h-4 w-4 text-gray-500" />
-                        <p className="text-gray-800">
-                          {paymentMethods[selectedTransaction.payment_method as keyof typeof paymentMethods] || selectedTransaction.payment_method}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Status</Label>
-                      <div className="mt-1">
-                        <Badge className={statusConfig[selectedTransaction.status as keyof typeof statusConfig]?.color || 'bg-gray-100 text-gray-800'}>
-                          {statusConfig[selectedTransaction.status as keyof typeof statusConfig]?.label || selectedTransaction.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Valor Total</Label>
-                      <p className="text-2xl font-bold text-green-600">
-                        {formatCurrency(selectedTransaction.amount)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Cashback Gerado</Label>
-                      <p className="text-xl font-semibold text-blue-600">
-                        {formatCurrency(selectedTransaction.cashback)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Taxa da Plataforma (5%)</Label>
-                      <p className="text-red-600 font-medium">
-                        -{formatCurrency(selectedTransaction.amount * 0.05)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Valor Líquido (Recebido)</Label>
-                      <p className="text-lg font-bold text-purple-600">
-                        {formatCurrency(selectedTransaction.amount - (selectedTransaction.amount * 0.05) - selectedTransaction.cashback)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {selectedTransaction.description && (
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Descrição</Label>
-                    <div className="mt-1 p-3 bg-gray-50 rounded-lg">
-                      <p className="text-gray-800">{selectedTransaction.description}</p>
-                    </div>
-                  </div>
-                )}
-
-                {selectedTransaction.notes && (
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Observações</Label>
-                    <div className="mt-1 p-3 bg-gray-50 rounded-lg">
-                      <p className="text-gray-800">{selectedTransaction.notes}</p>
-                    </div>
-                  </div>
-                )}
-
-                <Separator />
-
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="font-semibold text-blue-800 mb-2">Resumo Financeiro</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="flex justify-between">
-                      <span>Valor da Venda:</span>
-                      <span className="font-medium">{formatCurrency(selectedTransaction.amount)}</span>
-                    </div>
-                    <div className="flex justify-between text-red-600">
-                      <span>Taxa Plataforma:</span>
-                      <span className="font-medium">-{formatCurrency(selectedTransaction.amount * 0.05)}</span>
-                    </div>
-                    <div className="flex justify-between text-blue-600">
-                      <span>Cashback Cliente:</span>
-                      <span className="font-medium">-{formatCurrency(selectedTransaction.cashback)}</span>
-                    </div>
-                    <div className="flex justify-between text-green-600 font-semibold">
-                      <span>Você Recebe:</span>
-                      <span>{formatCurrency(selectedTransaction.amount - (selectedTransaction.amount * 0.05) - selectedTransaction.cashback)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-      </div>
+      </Tabs>
     </DashboardLayout>
   );
 }

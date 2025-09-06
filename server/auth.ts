@@ -4,11 +4,10 @@ import { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import bcrypt from "bcrypt";
 import { storage } from "./storage";
 import { User, users, auditLogs, merchants, InsertMerchant, userBonuses, cashbacks } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 declare global {
   namespace Express {
@@ -43,49 +42,25 @@ async function hashPassword(password: string) {
 }
 
 async function comparePasswords(supplied: string, stored: string) {
-  // Handle bcrypt passwords (new format)
-  if (stored.startsWith('$2b$') || stored.startsWith('$2a$')) {
-    try {
-      return await bcrypt.compare(supplied, stored);
-    } catch (error) {
-      console.error("Erro ao comparar senha bcrypt:", error);
-      return false;
-    }
-  }
-  
-  // Handle legacy scrypt passwords (old format)
-  if (stored.includes('.')) {
-    try {
-      const [hashed, salt] = stored.split(".");
-      const hashedBuf = Buffer.from(hashed, "hex");
-      const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-      return timingSafeEqual(hashedBuf, suppliedBuf);
-    } catch (error) {
-      console.error("Erro ao comparar senha scrypt:", error);
-      return false;
-    }
-  }
-  
-  // Invalid password format
-  console.error("Formato de senha armazenada inválido");
-  return false;
+  const [hashed, salt] = stored.split(".");
+  const hashedBuf = Buffer.from(hashed, "hex");
+  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || "vale-cashback-secret-key",
-    resave: false, // Não força salvamento desnecessário
-    saveUninitialized: false, // Não salva sessões vazias
+    resave: true, // Manter sessão ativa
+    saveUninitialized: true, // Permitir sessões não inicializadas
     store: storage.sessionStore,
     cookie: {
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 dias
       sameSite: 'lax',
-      secure: false,
-      httpOnly: true, // Previne acesso via JavaScript
+      secure: false, // Desativando secure para ambiente de desenvolvimento
+      httpOnly: true,
       path: '/'
-    },
-    rolling: false, // Não renova cookie a cada request
-    name: 'connect.sid'
+    }
   };
 
   app.set("trust proxy", 1);
@@ -106,7 +81,16 @@ export function setupAuth(app: Express) {
             return done(null, false, { message: 'Credenciais inválidas' });
           }
           
-          const passwordMatch = await comparePasswords(password, user.password);
+          // Verificar se a senha foi hasheada (contém um ponto para separar hash e salt)
+          let passwordMatch = false;
+          
+          if (user.password.includes('.')) {
+            // Senha com hash, usamos comparePasswords
+            passwordMatch = await storage.comparePasswords(password, user.password);
+          } else {
+            // Senha sem hash (usuários iniciais), comparação direta temporária
+            passwordMatch = user.password === password;
+          }
           
           if (!passwordMatch) {
             return done(null, false, { message: 'Credenciais inválidas' });
@@ -114,31 +98,21 @@ export function setupAuth(app: Express) {
           
           return done(null, user);
         } catch (error) {
-          console.error('Erro durante autenticação:', error);
           return done(error);
         }
       }
     )
   );
 
-  passport.serializeUser((user: any, done) => {
-    console.log('🔐 Serializando usuário:', user.id, user.email);
+  passport.serializeUser((user, done) => {
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
-      console.log('🔓 Deserializando usuário ID:', id);
       const user = await storage.getUser(id);
-      if (user) {
-        console.log('✅ Usuário encontrado:', user.email, user.type);
-        done(null, user);
-      } else {
-        console.log('❌ Usuário não encontrado para ID:', id);
-        done(null, false);
-      }
+      done(null, user);
     } catch (error) {
-      console.error('❌ Erro ao deserializar usuário:', error);
       done(error);
     }
   });
@@ -163,19 +137,14 @@ export function setupAuth(app: Express) {
   app.post("/api/auth/check-phone", async (req, res) => {
     try {
       const { phone } = req.body;
-      if (!phone || phone.trim().length === 0) {
-        return res.json({ exists: false });
-      }
-      
-      const cleanPhone = phone.trim();
-      if (cleanPhone.length < 10) {
-        return res.json({ exists: false });
+      if (!phone) {
+        return res.status(400).json({ message: "Telefone é obrigatório" });
       }
       
       const existingUserByPhone = await db
         .select()
         .from(users)
-        .where(eq(users.phone, cleanPhone))
+        .where(eq(users.phone, phone))
         .limit(1);
         
       res.json({ exists: existingUserByPhone.length > 0 });
@@ -195,13 +164,12 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Este email já está em uso" });
       }
       
-      // Verificar se o telefone já existe (se fornecido e válido)
-      if (userData.phone && userData.phone.trim().length >= 10) {
-        const cleanPhone = userData.phone.trim();
+      // Verificar se o telefone já existe (se fornecido)
+      if (userData.phone) {
         const existingUserByPhone = await db
           .select()
           .from(users)
-          .where(eq(users.phone, cleanPhone))
+          .where(eq(users.phone, userData.phone))
           .limit(1);
           
         if (existingUserByPhone.length > 0) {
@@ -209,34 +177,8 @@ export function setupAuth(app: Express) {
         }
       }
       
-      // Processar código de convite se fornecido
-      let referrerId = null;
-      if (userData.referralCode) {
-        try {
-          const [referrer] = await db
-            .select()
-            .from(users)
-            .where(eq(users.invitation_code, userData.referralCode))
-            .limit(1);
-            
-          if (referrer) {
-            referrerId = referrer.id;
-            console.log(`✅ Código de convite válido: ${userData.referralCode} (referrer: ${referrer.name})`);
-          } else {
-            console.log(`⚠️ Código de convite inválido: ${userData.referralCode}`);
-          }
-        } catch (error) {
-          console.error("Erro ao validar código de convite:", error);
-        }
-      }
-      
       // Hashear a senha antes de salvar no banco de dados
       userData.password = await storage.hashPassword(userData.password);
-      
-      // Adicionar referrer_id aos dados do usuário se válido
-      if (referrerId) {
-        userData.referred_by = referrerId;
-      }
       
       // Criar o usuário
       const user = await storage.createUser(userData);
@@ -272,6 +214,26 @@ export function setupAuth(app: Express) {
           console.log(`💰 Cashback atualizado com $10 para usuário ${user.id}`);
         }
         
+        // Verificar se já existe bônus de cadastro para este usuário
+        const existingBonus = await db
+          .select()
+          .from(userBonuses)
+          .where(eq(userBonuses.user_id, user.id))
+          .where(eq(userBonuses.type, "signup_bonus"))
+          .limit(1);
+
+        if (existingBonus.length === 0) {
+          // 2. Registrar o bônus na tabela específica para controle
+          await db.insert(userBonuses).values({
+            user_id: user.id,
+            amount: "10.00",
+            type: "signup_bonus",
+            description: "Bônus de cadastro de $10 adicionado automaticamente ao saldo",
+            is_used: true // Já foi "usado" (adicionado ao saldo)
+          });
+          console.log(`🎁 Bônus de cadastro registrado para usuário ${user.id}`);
+        }
+        
         console.log(`✅ BÔNUS DE $10 ADICIONADO AUTOMATICAMENTE AO SALDO do usuário ${user.id} (${user.email})`);
       } catch (bonusError) {
         console.error('❌ Erro ao adicionar bônus de $10 ao saldo:', bonusError);
@@ -294,15 +256,19 @@ export function setupAuth(app: Express) {
             const merchantData: InsertMerchant = {
               user_id: user.id,
               store_name: user.name || `Loja de ${user.email}`,
+              description: "",
               category: "",
               address: "",
               city: "",
               state: "",
               country: "",
+              zip_code: "",
               logo: null,
-              company_logo: null,
+              banner: null,
+              website: "",
               approved: true, // Aprovação automática para fins de teste
-              commission_rate: "2" // Taxa padrão de 2%
+              commission_rate: "2", // Taxa padrão de 2%
+              created_at: new Date()
             };
             
             await db.insert(merchants).values(merchantData);
@@ -328,7 +294,7 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/auth/login", (req, res, next) => {
-    const { userType } = req.body;
+    const { type } = req.body;
     
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) {
@@ -339,8 +305,8 @@ export function setupAuth(app: Express) {
         return res.status(401).json({ message: info?.message || "Credenciais inválidas" });
       }
       
-      // Verificar o tipo de usuário apenas se especificado
-      if (userType && user.type !== userType) {
+      // Verificar o tipo de usuário
+      if (user.type !== type) {
         return res.status(401).json({ 
           message: "Tipo de usuário incorreto. Por favor, selecione o tipo correto." 
         });
@@ -348,11 +314,8 @@ export function setupAuth(app: Express) {
       
       req.login(user, (loginErr) => {
         if (loginErr) {
-          console.error("Erro no req.login:", loginErr);
           return next(loginErr);
         }
-        
-        console.log("✅ Login bem-sucedido para:", user.email, user.type);
         
         // Não enviar a senha para o cliente
         const { password: _, ...userWithoutPassword } = user;
@@ -368,18 +331,36 @@ export function setupAuth(app: Express) {
     });
   });
 
-  // Endpoint para verificar status de autenticação
   app.get("/api/auth/me", (req, res) => {
-    console.log("🔍 Verificando autenticação - isAuthenticated:", req.isAuthenticated?.(), "user:", !!req.user);
+    console.log("Verificando autenticação do usuário:", {
+      isAuthenticated: req.isAuthenticated(),
+      sessionID: req.sessionID,
+      userId: req.user?.id,
+      userType: req.user?.type,
+      cookies: req.headers.cookie
+    });
     
-    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
-      const { password: _, ...userWithoutPassword } = req.user as any;
-      console.log("✅ Usuário autenticado:", userWithoutPassword.email, userWithoutPassword.type);
-      return res.json(userWithoutPassword);
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Usuário não autenticado" });
     }
     
-    console.log("❌ Usuário não autenticado");
-    return res.status(401).json({ message: "Usuário não autenticado" });
+    // Garantir que o usuário esteja definido
+    if (!req.user) {
+      return res.status(500).json({ message: "Erro no servidor de autenticação" });
+    }
+    
+    // Não enviar a senha para o cliente
+    const { password: _, ...userWithoutPassword } = req.user as User;
+    
+    // Adicionar cookie de sessão segura (opcional)
+    res.cookie('user_authenticated', 'true', {
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 dias
+      httpOnly: false,
+      path: '/',
+      sameSite: 'lax'
+    });
+    
+    res.json(userWithoutPassword);
   });
 
   // Rota para recuperação de senha
@@ -464,5 +445,4 @@ export function setupAuth(app: Express) {
       res.status(500).json({ message: "Erro ao processar a recuperação de senha" });
     }
   });
-
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { 
@@ -10,18 +10,11 @@ import {
   DialogDescription,
   DialogFooter
 } from "@/components/ui/dialog";
-import { 
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { 
   Select, 
   SelectContent, 
@@ -33,344 +26,332 @@ import {
   Search, 
   Eye, 
   Edit, 
+  Ban, 
   Lock, 
+  RotateCw, 
+  User, 
+  Mail, 
+  Phone, 
+  Calendar,
+  Activity,
+  Clock,
   Loader2,
+  Filter,
+  RotateCcw,
   UserPlus,
   RefreshCw,
+  DollarSign,
+  TrendingUp,
   Wallet,
-  Plus,
-  Minus,
-  Trash2,
-  AlertTriangle
+  CreditCard,
+  Users,
+  Store,
+  Save
 } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone?: string;
-  type: 'client' | 'merchant' | 'admin';
-  status: 'active' | 'inactive' | 'suspended';
-  balance?: string;
-  created_at: string;
-}
-
-interface CreateUserForm {
-  name: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  phone: string;
-  type: 'client' | 'merchant' | 'admin';
-}
-
-interface EditUserForm {
-  name: string;
-  email: string;
-  phone: string;
-  type: 'client' | 'merchant' | 'admin';
-  status: 'active' | 'inactive' | 'suspended';
-}
-
-interface BalanceOperation {
-  amount: string;
-  description: string;
-}
+import { queryClient } from "@/lib/queryClient";
 
 export default function AdminUsers() {
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    status: '',
+    type: ''
+  });
   const [searchTerm, setSearchTerm] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  
-  // Dialog states
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showBalanceDialog, setShowBalanceDialog] = useState(false);
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  
-  // Form states
-  const [createForm, setCreateForm] = useState<CreateUserForm>({
-    name: "", email: "", password: "", confirmPassword: "", phone: "",
-    type: "client"
-  });
-  
-  const [editForm, setEditForm] = useState<EditUserForm>({
-    name: "", email: "", phone: "", type: "client", status: "active"
-  });
-  
-  const [balanceForm, setBalanceForm] = useState<BalanceOperation>({
-    amount: "", description: ""
-  });
-  
-  const [newPassword, setNewPassword] = useState("");
-  const [balanceOperation, setBalanceOperation] = useState<'add' | 'remove'>('add');
-  
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { toast } = useToast();
-  
-  // Carregar lista de usuários
-  const { data: users = [], isLoading, refetch } = useQuery<User[]>({
-    queryKey: ['/api/admin/users'],
+
+  // Debounce para a pesquisa (aguarda 500ms após parar de digitar)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Query para buscar usuários autênticos do financial-tracker-pro
+  const { data, isLoading, refetch, error } = useQuery({
+    queryKey: ['/api/admin/users', debouncedSearchTerm, filterType, filterStatus, currentPage],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/admin/users");
-      return await response.json();
-    }
-  });
-  
-  // Filtrar usuários
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (user.phone && user.phone.includes(searchTerm));
-    const matchesType = typeFilter === "all" || user.type === typeFilter;
-    const matchesStatus = statusFilter === "all" || user.status === statusFilter;
-    
-    return matchesSearch && matchesType && matchesStatus;
-  });
-  
-  // Mutation para criar usuário
-  const createUserMutation = useMutation({
-    mutationFn: async (userData: CreateUserForm) => {
-      const response = await apiRequest("POST", "/api/admin/users", userData);
-      return await response.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Usuário criado com sucesso" });
-      setShowCreateDialog(false);
-      setCreateForm({
-        name: "", email: "", password: "", confirmPassword: "", phone: "",
-        type: "client"
-      });
-      refetch();
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro ao criar usuário",
-        description: error.message || "Ocorreu um erro inesperado",
-        variant: "destructive"
-      });
-    }
-  });
-  
-  // Mutation para editar usuário
-  const editUserMutation = useMutation({
-    mutationFn: async ({ userId, userData }: { userId: number; userData: EditUserForm }) => {
-      const response = await apiRequest("PUT", `/api/admin/users/${userId}`, userData);
-      return await response.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Usuário atualizado com sucesso" });
-      setShowEditDialog(false);
-      refetch();
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro ao atualizar usuário",
-        description: error.message || "Ocorreu um erro inesperado",
-        variant: "destructive"
-      });
-    }
-  });
-  
-  // Mutation para excluir usuário
-  const deleteUserMutation = useMutation({
-    mutationFn: async (userId: number) => {
-      const response = await apiRequest("DELETE", `/api/admin/users/${userId}`);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Erro ${response.status}: ${response.statusText}`);
+      const params = new URLSearchParams();
+      
+      if (debouncedSearchTerm && debouncedSearchTerm.trim()) {
+        params.append('search', debouncedSearchTerm.trim());
       }
-      return await response.json();
+      
+      if (filterType && filterType !== 'all') {
+        params.append('type', filterType);
+      }
+      
+      if (filterStatus && filterStatus !== 'all') {
+        params.append('status', filterStatus);
+      }
+      
+      params.append('page', currentPage.toString());
+      params.append('pageSize', '100');
+      
+      console.log("Fazendo requisição para:", `/api/admin/users?${params.toString()}`);
+      
+      try {
+        // Usar proxy do Vite para acessar a API na porta 3000
+        const response = await fetch(`/api/admin/users?${params.toString()}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          credentials: 'include'
+        });
+        
+        console.log("Status da resposta:", response.status);
+        
+        if (!response.ok) {
+          console.error("Erro na resposta:", response.status, response.statusText);
+          const errorText = await response.text();
+          console.error("Conteúdo do erro:", errorText);
+          throw new Error(`Erro ${response.status}: ${response.statusText}`);
+        }
+        
+        const responseText = await response.text();
+        console.log("Resposta bruta da API:", responseText);
+        
+        if (!responseText) {
+          throw new Error('Resposta vazia da API');
+        }
+        
+        const result = JSON.parse(responseText);
+        console.log("Dados parseados da API:", result);
+        console.log("Número de usuários retornados:", result.users?.length || 0);
+        
+        if (!result.users || !Array.isArray(result.users)) {
+          console.error("Formato inválido da resposta:", result);
+          throw new Error('Formato inválido de resposta da API');
+        }
+        
+        return result;
+      } catch (error) {
+        console.error("Erro na requisição:", error);
+        throw error;
+      }
     },
-    onSuccess: (data) => {
-      toast({ 
-        title: "Usuário excluído com sucesso",
-        description: `${data.deletedUser?.name || 'Usuário'} foi removido do sistema`
-      });
-      setShowDeleteDialog(false);
-      setSelectedUser(null);
-      // Invalidar cache e recarregar dados
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-      refetch();
-    },
-    onError: (error: any) => {
-      console.error("Erro ao excluir usuário:", error);
-      toast({
-        title: "Erro ao excluir usuário",
-        description: error.message || "Ocorreu um erro inesperado ao excluir o usuário",
-        variant: "destructive"
-      });
-    }
+    retry: 3,
+    retryDelay: 1000,
+    refetchOnWindowFocus: false,
+    staleTime: 0
   });
-  
-  // Mutation para gerenciar saldo
-  const balanceMutation = useMutation({
-    mutationFn: async ({ userId, operation, amount, description }: { 
-      userId: number; 
-      operation: 'add' | 'remove'; 
-      amount: number; 
-      description: string; 
-    }) => {
-      const response = await apiRequest("PUT", `/api/admin/users/${userId}/balance`, {
-        operation,
-        amount,
-        description
-      });
-      return await response.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Saldo atualizado com sucesso" });
-      setShowBalanceDialog(false);
-      setBalanceForm({ amount: "", description: "" });
-      refetch();
-    },
-    onError: (error: any) => {
+
+  // Função para atualizar dados com feedback
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
       toast({
-        title: "Erro ao atualizar saldo",
-        description: error.message || "Ocorreu um erro inesperado",
+        title: "Dados atualizados",
+        description: "Lista de usuários e saldos foram atualizados com sucesso.",
+        variant: "default"
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao atualizar",
+        description: "Não foi possível atualizar os dados. Tente novamente.",
         variant: "destructive"
       });
+    } finally {
+      setIsRefreshing(false);
     }
-  });
-  
-  // Mutation para redefinir senha
-  const passwordMutation = useMutation({
-    mutationFn: async ({ userId, password }: { userId: number; password: string }) => {
-      const response = await apiRequest("PUT", `/api/admin/users/${userId}/password`, {
-        password
-      });
-      return await response.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Senha redefinida com sucesso" });
-      setShowPasswordDialog(false);
-      setNewPassword("");
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro ao redefinir senha",
-        description: error.message || "Ocorreu um erro inesperado",
-        variant: "destructive"
-      });
-    }
-  });
-  
-  // Handlers
-  const handleCreateUser = () => {
-    if (createForm.password !== createForm.confirmPassword) {
-      toast({
-        title: "Erro de validação",
-        description: "As senhas não coincidem",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    if (createForm.password.length < 6) {
-      toast({
-        title: "Erro de validação",
-        description: "A senha deve ter pelo menos 6 caracteres",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    createUserMutation.mutate(createForm);
   };
-  
-  const handleEditUser = (user: User) => {
+
+  // Função para limpar todos os filtros
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilterType('all');
+    setFilterStatus('all');
+    setCurrentPage(1);
+    toast({
+      title: "Filtros limpos",
+      description: "Todos os filtros foram removidos.",
+      variant: "default"
+    });
+  };
+
+  const handleViewUser = async (user: any) => {
+    try {
+      // Buscar detalhes completos do usuário incluindo saldos
+      const response = await fetch(`/api/admin/user-details/${user.id}`);
+      if (response.ok) {
+        const userDetails = await response.json();
+        setSelectedUser(userDetails);
+      } else {
+        setSelectedUser(user);
+      }
+      setIsDialogOpen(true);
+    } catch (error) {
+      setSelectedUser(user);
+      setIsDialogOpen(true);
+    }
+  };
+
+  const handleEditUser = (user: any) => {
     setSelectedUser(user);
     setEditForm({
-      name: user.name,
-      email: user.email,
-      phone: user.phone || "",
-      type: user.type,
-      status: user.status
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      status: user.status || '',
+      type: user.type || ''
     });
-    setShowEditDialog(true);
+    setIsEditDialogOpen(true);
   };
-  
-  const handleDeleteUser = (user: User) => {
-    setSelectedUser(user);
-    setShowDeleteDialog(true);
+
+  const formatCurrency = (value: number | string) => {
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    }).format(numValue || 0);
   };
-  
-  const handleManageBalance = (user: User) => {
-    setSelectedUser(user);
-    setShowBalanceDialog(true);
-  };
-  
-  const handleResetPassword = (user: User) => {
-    setSelectedUser(user);
-    setShowPasswordDialog(true);
-  };
-  
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge className="bg-green-100 text-green-800">Ativo</Badge>;
-      case 'inactive':
-        return <Badge className="bg-gray-100 text-gray-800">Inativo</Badge>;
-      case 'suspended':
-        return <Badge className="bg-red-100 text-red-800">Suspenso</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
-    }
-  };
-  
-  const getTypeBadge = (type: string) => {
+
+  const getTypeLabel = (type: string) => {
     switch (type) {
-      case 'client':
-        return <Badge className="bg-blue-100 text-blue-800">Cliente</Badge>;
-      case 'merchant':
-        return <Badge className="bg-purple-100 text-purple-800">Lojista</Badge>;
-      case 'admin':
-        return <Badge className="bg-orange-100 text-orange-800">Admin</Badge>;
-      default:
-        return <Badge>{type}</Badge>;
+      case "client": return "Cliente";
+      case "merchant": return "Lojista";
+      case "admin": return "Admin";
+      default: return type;
     }
   };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "active": return "Ativo";
+      case "inactive": return "Inativo";
+      case "blocked": return "Bloqueado";
+      default: return status;
+    }
+  };
+
+  const getInitials = (name: string = "") => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase();
+  };
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case "client": return <Users className="h-4 w-4" />;
+      case "merchant": return <Store className="h-4 w-4" />;
+      case "admin": return <User className="h-4 w-4" />;
+      default: return <User className="h-4 w-4" />;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "active": return "bg-green-100 text-green-800 border-green-200";
+      case "inactive": return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "blocked": return "bg-red-100 text-red-800 border-red-200";
+      default: return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  };
+
+  const allUsers = data?.users || [];
   
-  return (
-    <DashboardLayout title="Gerenciamento de Usuários" type="admin">
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold">Gerenciamento de Usuários</h1>
-            <p className="text-muted-foreground">
-              Gerencie todos os usuários do sistema
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={() => refetch()} variant="outline">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Atualizar
-            </Button>
-            <Button onClick={() => setShowCreateDialog(true)}>
-              <UserPlus className="h-4 w-4 mr-2" />
-              Novo Usuário
-            </Button>
+  console.log("Estado atual da página:");
+  console.log("- isLoading:", isLoading);
+  console.log("- data:", data);
+  console.log("- allUsers.length:", allUsers.length);
+  console.log("- totalUsers:", data?.totalUsers);
+
+  if (isLoading) {
+    return (
+      <DashboardLayout title="Gestão de Usuários" type="admin">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-lg text-muted-foreground">Carregando usuários e saldos...</p>
           </div>
         </div>
-        
-        {/* Filtros */}
+      </DashboardLayout>
+    );
+  }
+
+  return (
+    <DashboardLayout title="Gestão de Usuários" type="admin">
+      <div className="space-y-6">
+        {/* Header with Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-2">
+                <Users className="h-8 w-8 text-blue-600" />
+                <div>
+                  <p className="text-2xl font-bold">{data?.totalUsers || 0}</p>
+                  <p className="text-xs text-muted-foreground">Total de Usuários</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-2">
+                <Store className="h-8 w-8 text-orange-600" />
+                <div>
+                  <p className="text-2xl font-bold">{data?.merchantCount || 0}</p>
+                  <p className="text-xs text-muted-foreground">Lojistas</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-2">
+                <Users className="h-8 w-8 text-green-600" />
+                <div>
+                  <p className="text-2xl font-bold">{data?.clientCount || 0}</p>
+                  <p className="text-xs text-muted-foreground">Clientes</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-2">
+                <DollarSign className="h-8 w-8 text-purple-600" />
+                <div>
+                  <p className="text-2xl font-bold">{formatCurrency(data?.totalBalance || 0)}</p>
+                  <p className="text-xs text-muted-foreground">Saldo Total</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Search and Filters */}
         <Card>
-          <CardHeader>
-            <CardTitle>Filtros</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="search">Buscar</Label>
+          <CardContent className="p-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    id="search"
-                    placeholder="Nome, email ou telefone..."
+                    placeholder="Buscar por nome ou email..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
@@ -378,468 +359,472 @@ export default function AdminUsers() {
                 </div>
               </div>
               
+              <Select value={filterType} onValueChange={setFilterType}>
+                <SelectTrigger className="w-full md:w-[180px]">
+                  <SelectValue placeholder="Tipo de usuário" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os tipos</SelectItem>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="client">Cliente</SelectItem>
+                  <SelectItem value="merchant">Lojista</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="w-full md:w-[180px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os status</SelectItem>
+                  <SelectItem value="active">Ativo</SelectItem>
+                  <SelectItem value="inactive">Inativo</SelectItem>
+                  <SelectItem value="blocked">Bloqueado</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              <div className="flex space-x-2">
+                <Button 
+                  variant="outline" 
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  {isRefreshing ? 'Atualizando...' : 'Atualizar'}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={handleClearFilters}
+                  disabled={searchTerm === '' && filterType === 'all' && filterStatus === 'all'}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Limpar Filtros
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Users Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {allUsers.map((user: any) => (
+            <Card key={user.id} className="hover:shadow-md transition-all duration-200 h-fit">
+              <CardContent className="p-4">
+                {/* Header */}
+                <div className="flex items-center space-x-3 mb-3">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarImage src={user.photo} alt={user.name} />
+                    <AvatarFallback className="bg-primary text-white text-xs">
+                      {getInitials(user.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-medium text-sm truncate">{user.name}</h3>
+                    <div className="flex items-center space-x-1 mt-1">
+                      <Badge variant="outline" className={`text-xs px-1 py-0 ${getStatusColor(user.status)}`}>
+                        {getStatusLabel(user.status)}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">
+                        {getTypeIcon(user.type)}
+                        <span className="ml-1">{getTypeLabel(user.type)}</span>
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Financial Information */}
+                <div className="space-y-2 mb-3">
+                  {user.type === 'client' && (
+                    <div className="flex items-center justify-between p-2 bg-green-50 rounded">
+                      <div className="flex items-center space-x-1">
+                        <Wallet className="h-3 w-3 text-green-600" />
+                        <span className="text-xs text-green-700">Cashback</span>
+                      </div>
+                      <span className="text-xs font-bold text-green-800">
+                        {formatCurrency(user.total_cashback || 0)}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {user.type === 'merchant' && (
+                    <div className="flex items-center justify-between p-2 bg-orange-50 rounded">
+                      <div className="flex items-center space-x-1">
+                        <TrendingUp className="h-3 w-3 text-orange-600" />
+                        <span className="text-xs text-orange-700">Vendas</span>
+                      </div>
+                      <span className="text-xs font-bold text-orange-800">
+                        {formatCurrency(user.sales_total || 0)}
+                      </span>
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center justify-between p-2 bg-blue-50 rounded">
+                    <div className="flex items-center space-x-1">
+                      <CreditCard className="h-3 w-3 text-blue-600" />
+                      <span className="text-xs text-blue-700">Transações</span>
+                    </div>
+                    <span className="text-xs font-bold text-blue-800">
+                      {user.transaction_count || 0}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-2 bg-purple-50 rounded">
+                    <div className="flex items-center space-x-1">
+                      <DollarSign className="h-3 w-3 text-purple-600" />
+                      <span className="text-xs text-purple-700">Volume</span>
+                    </div>
+                    <span className="text-xs font-bold text-purple-800">
+                      {formatCurrency(user.transaction_total || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* User Actions */}
+                <div className="flex space-x-1 mb-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => handleViewUser(user)}
+                    className="flex-1 text-xs h-7"
+                  >
+                    <Eye className="h-3 w-3 mr-1" />
+                    Detalhes
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => handleEditUser(user)}
+                    className="text-xs h-7 px-2"
+                  >
+                    <Edit className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                {/* Additional Info */}
+                <div className="pt-2 border-t border-gray-100">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>ID: {user.id}</span>
+                    <span>Cadastro</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    <p className="truncate">{user.email}</p>
+                    <p>{new Date(user.created_at).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Empty State */}
+        {allUsers.length === 0 && !isLoading && (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Nenhum usuário encontrado</h3>
+              <p className="text-muted-foreground mb-4">
+                Tente ajustar os filtros ou termos de busca
+              </p>
+              <div className="space-y-2 mb-4">
+                <p className="text-sm text-muted-foreground">Debug info:</p>
+                <p className="text-xs">isLoading: {isLoading.toString()}</p>
+                <p className="text-xs">data: {JSON.stringify(data, null, 2)}</p>
+                <p className="text-xs">allUsers.length: {allUsers.length}</p>
+              </div>
+              <Button variant="outline" onClick={() => {
+                setSearchTerm('');
+                setFilterType('all');
+                setFilterStatus('all');
+                refetch();
+              }}>
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Limpar Filtros
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* User Details Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalhes do Usuário</DialogTitle>
+            <DialogDescription>
+              Informações completas e saldos atualizados
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedUser && (
+            <div className="space-y-6">
+              {/* User Header */}
+              <div className="flex items-center space-x-4 p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg">
+                <Avatar className="h-20 w-20">
+                  <AvatarImage src={selectedUser.photo} alt={selectedUser.name} />
+                  <AvatarFallback className="bg-primary text-white text-xl">
+                    {getInitials(selectedUser.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold">{selectedUser.name}</h2>
+                  <p className="text-muted-foreground">{selectedUser.email}</p>
+                  <div className="flex items-center space-x-2 mt-2">
+                    <Badge variant="outline" className={getStatusColor(selectedUser.status)}>
+                      {getStatusLabel(selectedUser.status)}
+                    </Badge>
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                      {getTypeIcon(selectedUser.type)}
+                      <span className="ml-1">{getTypeLabel(selectedUser.type)}</span>
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Financial Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {selectedUser.type === 'client' && (
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="text-center">
+                        <Wallet className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-green-800">
+                          {formatCurrency(selectedUser.total_cashback || 0)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">Total Cashback</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                
+                {selectedUser.type === 'merchant' && (
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="text-center">
+                        <TrendingUp className="h-8 w-8 text-orange-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-orange-800">
+                          {formatCurrency(selectedUser.sales_total || 0)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">Total Vendas</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-center">
+                      <CreditCard className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-blue-800">
+                        {selectedUser.transaction_count || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Transações</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-center">
+                      <DollarSign className="h-8 w-8 text-purple-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-purple-800">
+                        {formatCurrency(selectedUser.transaction_total || 0)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Volume Total</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Personal Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Informações Pessoais</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">Nome Completo</label>
+                      <p className="text-base">{selectedUser.name}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">Email</label>
+                      <p className="text-base">{selectedUser.email}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">Telefone</label>
+                      <p className="text-base">{selectedUser.phone || 'Não informado'}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">País</label>
+                      <p className="text-base">{selectedUser.country || 'Não informado'}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">Data de Cadastro</label>
+                      <p className="text-base">{new Date(selectedUser.created_at).toLocaleDateString('pt-BR')}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">Último Login</label>
+                      <p className="text-base">
+                        {selectedUser.last_login 
+                          ? new Date(selectedUser.last_login).toLocaleDateString('pt-BR')
+                          : 'Nunca'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Merchant Info */}
+              {selectedUser.type === 'merchant' && selectedUser.merchant && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Informações da Loja</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Nome da Loja</label>
+                        <p className="text-base">{selectedUser.merchant.store_name}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Categoria</label>
+                        <p className="text-base">{selectedUser.merchant.category}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Taxa de Comissão</label>
+                        <p className="text-base">{selectedUser.merchant.commission_rate}%</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Status da Loja</label>
+                        <Badge variant="outline" className={selectedUser.merchant.approved ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}>
+                          {selectedUser.merchant.approved ? 'Aprovada' : 'Pendente'}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+              Fechar
+            </Button>
+            <Button onClick={() => {
+              setIsDialogOpen(false);
+              setIsEditDialogOpen(true);
+            }}>
+              <Edit className="h-4 w-4 mr-2" />
+              Editar Usuário
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Edição de Usuário */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Usuário</DialogTitle>
+          </DialogHeader>
+          
+          {selectedUser && (
+            <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Tipo</Label>
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <label className="text-sm font-medium">Nome Completo</label>
+                <Input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                  placeholder="Nome do usuário"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Email</label>
+                <Input
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                  placeholder="email@exemplo.com"
+                  type="email"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Telefone</label>
+                <Input
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                  placeholder="(11) 99999-9999"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Status</label>
+                <Select value={editForm.status} onValueChange={(value) => setEditForm({...editForm, status: value})}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Selecione o status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="client">Clientes</SelectItem>
-                    <SelectItem value="merchant">Lojistas</SelectItem>
-                    <SelectItem value="admin">Administradores</SelectItem>
+                    <SelectItem value="active">Ativo</SelectItem>
+                    <SelectItem value="inactive">Inativo</SelectItem>
+                    <SelectItem value="blocked">Bloqueado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               
               <div className="space-y-2">
-                <Label>Status</Label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <label className="text-sm font-medium">Tipo de Usuário</label>
+                <Select value={editForm.type} onValueChange={(value) => setEditForm({...editForm, type: value})}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Selecione o tipo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="active">Ativos</SelectItem>
-                    <SelectItem value="inactive">Inativos</SelectItem>
-                    <SelectItem value="suspended">Suspensos</SelectItem>
+                    <SelectItem value="client">Cliente</SelectItem>
+                    <SelectItem value="merchant">Lojista</SelectItem>
+                    <SelectItem value="admin">Administrador</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
-          </CardContent>
-        </Card>
-        
-        {/* Lista de usuários */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Usuários ({filteredUsers.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin" />
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Saldo</TableHead>
-                    <TableHead>Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">{user.name}</TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>{getTypeBadge(user.type)}</TableCell>
-                      <TableCell>{getStatusBadge(user.status)}</TableCell>
-                      <TableCell>
-                        {user.type === 'client' ? `$${parseFloat(user.balance || '0').toFixed(2)}` : '-'}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEditUser(user)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          {user.type === 'client' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleManageBalance(user)}
-                            >
-                              <Wallet className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleResetPassword(user)}
-                          >
-                            <Lock className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteUser(user)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-      
-      {/* Dialog Criar Usuário */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Criar Novo Usuário</DialogTitle>
-            <DialogDescription>
-              Preencha os dados para criar um novo usuário no sistema
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="create-name">Nome Completo</Label>
-              <Input
-                id="create-name"
-                value={createForm.name}
-                onChange={(e) => setCreateForm({...createForm, name: e.target.value})}
-                placeholder="Digite o nome completo"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="create-email">Email</Label>
-              <Input
-                id="create-email"
-                type="email"
-                value={createForm.email}
-                onChange={(e) => setCreateForm({...createForm, email: e.target.value})}
-                placeholder="email@exemplo.com"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="create-password">Senha</Label>
-              <Input
-                id="create-password"
-                type="password"
-                value={createForm.password}
-                onChange={(e) => setCreateForm({...createForm, password: e.target.value})}
-                placeholder="Digite a senha"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="create-confirm-password">Confirmar Senha</Label>
-              <Input
-                id="create-confirm-password"
-                type="password"
-                value={createForm.confirmPassword}
-                onChange={(e) => setCreateForm({...createForm, confirmPassword: e.target.value})}
-                placeholder="Confirme a senha"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="create-phone">Telefone</Label>
-              <Input
-                id="create-phone"
-                value={createForm.phone}
-                onChange={(e) => setCreateForm({...createForm, phone: e.target.value})}
-                placeholder="+55 (11) 99999-9999"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Tipo de Usuário</Label>
-              <Select value={createForm.type} onValueChange={(value: 'client' | 'merchant' | 'admin') => setCreateForm({...createForm, type: value})}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="client">Cliente</SelectItem>
-                  <SelectItem value="merchant">Lojista</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          )}
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button 
-              onClick={handleCreateUser}
-              disabled={createUserMutation.isPending}
-            >
-              {createUserMutation.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Criar Usuário
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Dialog Editar Usuário */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar Usuário</DialogTitle>
-            <DialogDescription>
-              Edite as informações do usuário {selectedUser?.name}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">Nome</Label>
-              <Input
-                id="edit-name"
-                value={editForm.name}
-                onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="edit-email">Email</Label>
-              <Input
-                id="edit-email"
-                type="email"
-                value={editForm.email}
-                onChange={(e) => setEditForm({...editForm, email: e.target.value})}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="edit-phone">Telefone</Label>
-              <Input
-                id="edit-phone"
-                value={editForm.phone}
-                onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Tipo</Label>
-              <Select value={editForm.type} onValueChange={(value: 'client' | 'merchant' | 'admin') => setEditForm({...editForm, type: value})}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="client">Cliente</SelectItem>
-                  <SelectItem value="merchant">Lojista</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select value={editForm.status} onValueChange={(value: 'active' | 'inactive' | 'suspended') => setEditForm({...editForm, status: value})}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Ativo</SelectItem>
-                  <SelectItem value="inactive">Inativo</SelectItem>
-                  <SelectItem value="suspended">Suspenso</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={() => selectedUser && editUserMutation.mutate({ userId: selectedUser.id, userData: editForm })}
-              disabled={editUserMutation.isPending}
-            >
-              {editUserMutation.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Dialog Gerenciar Saldo */}
-      <Dialog open={showBalanceDialog} onOpenChange={setShowBalanceDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Gerenciar Saldo</DialogTitle>
-            <DialogDescription>
-              Adicionar ou remover saldo do usuário {selectedUser?.name}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 p-3 bg-blue-50 rounded-lg">
-              <Wallet className="h-5 w-5 text-blue-600" />
-              <div>
-                <p className="text-sm font-medium">Saldo Atual</p>
-                <p className="text-lg font-bold text-blue-600">
-                  R$ {selectedUser?.balance || '0,00'}
-                </p>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Operação</Label>
-              <Select value={balanceOperation} onValueChange={(value: 'add' | 'remove') => setBalanceOperation(value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="add">
-                    <div className="flex items-center gap-2">
-                      <Plus className="h-4 w-4 text-green-600" />
-                      Adicionar Saldo
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="remove">
-                    <div className="flex items-center gap-2">
-                      <Minus className="h-4 w-4 text-red-600" />
-                      Remover Saldo
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="balance-amount">Valor</Label>
-              <Input
-                id="balance-amount"
-                type="number"
-                step="0.01"
-                min="0"
-                value={balanceForm.amount}
-                onChange={(e) => setBalanceForm({...balanceForm, amount: e.target.value})}
-                placeholder="0,00"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="balance-description">Descrição</Label>
-              <Input
-                id="balance-description"
-                value={balanceForm.description}
-                onChange={(e) => setBalanceForm({...balanceForm, description: e.target.value})}
-                placeholder="Motivo da operação"
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowBalanceDialog(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={() => {
-                if (selectedUser && balanceForm.amount && balanceForm.description) {
-                  balanceMutation.mutate({
-                    userId: selectedUser.id,
-                    operation: balanceOperation,
-                    amount: parseFloat(balanceForm.amount),
-                    description: balanceForm.description
+            <Button onClick={async () => {
+              try {
+                const response = await fetch(`/api/admin/users/${selectedUser.id}`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(editForm),
+                });
+
+                if (response.ok) {
+                  toast({
+                    title: "Usuário atualizado",
+                    description: "As informações foram salvas com sucesso.",
+                    variant: "default"
                   });
+                  setIsEditDialogOpen(false);
+                  refetch(); // Recarregar a lista
+                } else {
+                  throw new Error('Erro ao atualizar usuário');
                 }
-              }}
-              disabled={balanceMutation.isPending || !balanceForm.amount || !balanceForm.description}
-            >
-              {balanceMutation.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {balanceOperation === 'add' ? 'Adicionar' : 'Remover'} Saldo
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Dialog Redefinir Senha */}
-      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Redefinir Senha</DialogTitle>
-            <DialogDescription>
-              Digite uma nova senha para o usuário {selectedUser?.name}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-password">Nova Senha</Label>
-              <Input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Digite a nova senha"
-              />
-            </div>
-            
-            <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-              <p className="text-sm text-yellow-800">
-                A nova senha deve ter pelo menos 6 caracteres.
-              </p>
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={() => selectedUser && passwordMutation.mutate({ userId: selectedUser.id, password: newPassword })}
-              disabled={passwordMutation.isPending || newPassword.length < 6}
-            >
-              {passwordMutation.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Redefinir Senha
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Dialog Excluir Usuário */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Excluir Usuário</DialogTitle>
-            <DialogDescription>
-              Esta ação não pode ser desfeita. Tem certeza que deseja excluir o usuário {selectedUser?.name}?
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="flex items-center gap-3 p-4 bg-red-50 rounded-lg border border-red-200">
-            <AlertTriangle className="h-5 w-5 text-red-600" />
-            <div>
-              <p className="text-sm font-medium text-red-800">Atenção!</p>
-              <p className="text-xs text-red-600">
-                Todos os dados relacionados a este usuário serão permanentemente removidos.
-              </p>
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              variant="destructive"
-              onClick={() => selectedUser && deleteUserMutation.mutate(selectedUser.id)}
-              disabled={deleteUserMutation.isPending}
-            >
-              {deleteUserMutation.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Excluir Usuário
+              } catch (error) {
+                toast({
+                  title: "Erro ao atualizar",
+                  description: "Não foi possível salvar as alterações.",
+                  variant: "destructive"
+                });
+              }
+            }}>
+              <Save className="h-4 w-4 mr-2" />
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>

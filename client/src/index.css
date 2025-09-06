@@ -154,7 +154,9 @@
       @apply flex flex-col items-center justify-center p-2 rounded-xl bg-white dark:bg-gray-800 shadow-sm;
     }
     
-    /* Removed conflicting mobile-bottom-nav class that was causing duplicates */
+    .mobile-bottom-nav {
+      @apply fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 shadow-md flex justify-around items-center h-[var(--mobile-bottom-nav-height)] z-40;
+    }
     
     .mobile-top-nav {
       @apply fixed top-0 left-0 right-0 bg-primary text-white flex items-center justify-between px-4 h-[var(--mobile-nav-height)] z-40;

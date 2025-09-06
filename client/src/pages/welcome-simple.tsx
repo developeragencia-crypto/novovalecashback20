@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Gift, DollarSign, ArrowRight, Star, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import logoPath from '@assets/LOGO-VALE-CASHBACK.SEM-FUNDO.png';
+import logoPath from '@/assets/vale-cashback-logo.png';
 
 export default function WelcomeSimplePage() {
   const handleGoToRegister = () => {
@@ -22,7 +22,11 @@ export default function WelcomeSimplePage() {
         transition={{ duration: 0.8 }}
         className="mb-8"
       >
-        <img src={logoPath} alt="Vale Cashback" className="h-20 w-auto" />
+        <img 
+          src={logoPath} 
+          alt="Vale Cashback Logo" 
+          className="h-24 w-24 object-contain"
+        />
       </motion.div>
 
       {/* Título Principal */}
@@ -117,7 +121,25 @@ export default function WelcomeSimplePage() {
         Junte-se a milhares de pessoas que já estão economizando e ganhando dinheiro com o Vale Cashback!
       </motion.p>
 
-
+      {/* Créditos do Desenvolvedor */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.8, delay: 1.2 }}
+        className="text-center mt-8 text-sm text-gray-500"
+      >
+        <p>
+          Desenvolvido por{' '}
+          <a 
+            href="https://alexdesenvolvedor.com.br" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-[#3db54e] hover:text-[#f58220] font-semibold transition-colors duration-300"
+          >
+            Alex Developer
+          </a>
+        </p>
+      </motion.div>
     </div>
   );
 }

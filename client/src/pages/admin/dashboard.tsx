@@ -55,9 +55,9 @@ const transactionVolumeData = [
 ];
 
 const userDistributionData = [
-  { name: "Clientes", value: 1050, color: "hsl(var(--chart-2))" },
-  { name: "Lojistas", value: 105, color: "hsl(var(--chart-3))" },
-  { name: "Administradores", value: 5, color: "hsl(var(--chart-1))" }
+  { name: "Clientes", value: 66, color: "hsl(var(--chart-2))" },
+  { name: "Lojistas", value: 28, color: "hsl(var(--chart-3))" },
+  { name: "Administradores", value: 4, color: "hsl(var(--chart-1))" }
 ];
 
 const recentStores = [
@@ -68,47 +68,23 @@ const recentStores = [
 export default function AdminDashboard() {
   const { toast } = useToast();
   
-  // Interface para dados do dashboard admin
-  interface AdminDashboardData {
-    overview: {
-      total_users: string;
-      total_clients: string;
-      total_merchants_users: string;
-      approved_merchants: string;
-      total_transactions: string;
-      total_volume: string;
-      total_cashback_given: string;
-    };
-    top_merchants: any[];
-    recent_transactions: any[];
-    daily_trends: any[];
-  }
-
-  // Query para obter dados reais do dashboard
-  const { data: dashboardData, isLoading, error } = useQuery<AdminDashboardData>({
+  // Query to get dashboard data
+  const { data, isLoading, error } = useQuery({
     queryKey: ['/api/admin/dashboard'],
-    queryFn: async () => {
-      const response = await fetch('/api/admin/dashboard', {
-        credentials: 'include',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`${response.status}: ${response.statusText}`);
-      }
-      
-      return response.json();
-    },
-    retry: false,
-    refetchOnWindowFocus: false
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
-  // Log de erro sem toast para evitar re-renders
-  if (error) {
-    console.error("Erro ao carregar dados do dashboard:", error);
+  if (isLoading) {
+    return (
+      <DashboardLayout title="Dashboard" type="admin">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p>Carregando dados do dashboard...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
@@ -117,21 +93,27 @@ export default function AdminDashboard() {
       <StatCardGrid className="mb-6">
         <StatCard
           title="Total de Usuários"
-          value={dashboardData?.overview?.total_users || "0"}
-          description={`${dashboardData?.overview?.total_clients || "0"} clientes`}
+          value="98"
+          description="66 clientes, 28 lojistas, 4 admins"
           icon={<Users className="h-5 w-5 text-primary" />}
         />
         <StatCard
           title="Transações Totais"
-          value={dashboardData?.overview?.total_transactions || "0"}
-          description={`Volume: R$ ${parseFloat(dashboardData?.overview?.total_volume || "0").toFixed(2)}`}
+          value="156"
+          description="Transações processadas"
           icon={<CreditCard className="h-5 w-5 text-primary" />}
         />
         <StatCard
-          title="Cashback Distribuído"
-          value={`R$ ${parseFloat(dashboardData?.overview?.total_cashback_given || "0").toFixed(2)}`}
-          description={`${dashboardData?.overview?.approved_merchants || "0"} lojistas`}
+          title="Volume Financeiro"
+          value="R$ 34.330,42"
+          description="28 lojistas ativos"
           icon={<BarChart className="h-5 w-5 text-primary" />}
+        />
+        <StatCard
+          title="Sistema"
+          value="Online"
+          description="Financial-tracker-pro"
+          icon={<CheckCircle className="h-5 w-5 text-green-500" />}
         />
       </StatCardGrid>
 
@@ -177,27 +159,24 @@ export default function AdminDashboard() {
                 <div className="text-center py-8 text-muted-foreground">
                   Carregando lojas...
                 </div>
-              ) : !dashboardData?.top_merchants || dashboardData.top_merchants.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  Não há lojas recentemente registradas.
-                </div>
               ) : (
-                dashboardData.top_merchants.map((merchant: any, index: number) => (
-                  <div key={index} className="p-4 border rounded-lg">
+                recentStores.map((store: any) => (
+                  <div key={store.id} className="p-4 border rounded-lg">
                     <div className="flex justify-between mb-2">
-                      <h3 className="font-medium">{merchant.store_name}</h3>
+                      <h3 className="font-medium">{store.name}</h3>
                       <Badge variant="outline" className="bg-green-100 text-green-800 hover:bg-green-200">
                         Ativa
                       </Badge>
                     </div>
                     <div className="flex flex-wrap justify-between text-sm text-muted-foreground mb-3">
-                      <span>Transações: {merchant.transaction_count}</span>
-                      <span>Volume: R$ {parseFloat(merchant.total_volume || 0).toFixed(2)}</span>
+                      <span>Responsável: {store.owner}</span>
+                      <span>Categoria: {store.category}</span>
+                      <span>Data: {store.date}</span>
                     </div>
                     <div className="flex gap-2">
-                      <Link href={`/admin/merchants`}>
+                      <Link href={`/admin/stores/${store.id}`}>
                         <Button variant="outline" size="sm">
-                          <Eye className="mr-1 h-4 w-4" /> Ver Detalhes
+                          <Eye className="mr-1 h-4 w-4" /> Detalhes
                         </Button>
                       </Link>
                     </div>
@@ -205,9 +184,9 @@ export default function AdminDashboard() {
                 ))
               )}
               <div className="flex justify-end mt-4">
-                <Link href="/admin/merchants">
+                <Link href="/admin/stores">
                   <Button variant="outline" size="sm">
-                    Ver todos os lojistas
+                    Ver todas as lojas
                   </Button>
                 </Link>
               </div>

@@ -7,7 +7,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BarChart, BarChart2, Calendar, CheckCircle, Edit, Eye, Landmark, Loader2, Mail, MapPin, Phone, Store, Trash2, User, UserCheck, UserPlus, UserX, XCircle } from "lucide-react";
+import { BarChart, BarChart2, Calendar, CheckCircle, Edit, Eye, Landmark, Loader2, Mail, MapPin, Phone, Store, User, UserCheck, UserPlus, UserX, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { Separator } from "@/components/ui/separator";
@@ -35,30 +35,14 @@ const merchantFormSchema = z.object({
   commission_rate: z.string().optional()
 });
 
-// Esquema de validação do formulário de edição de lojista
-const editMerchantFormSchema = z.object({
-  user_name: z.string().min(1, "Nome é obrigatório"),
-  user_email: z.string().email("Email inválido"),
-  user_phone: z.string().optional(),
-  store_name: z.string().min(1, "Nome da loja é obrigatório"),
-  category: z.string().min(1, "Categoria é obrigatória"),
-  address: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  commission_rate: z.string().optional(),
-  approved: z.boolean().optional()
-});
-
-// Tipos derivados dos esquemas
+// Tipo derivado do esquema
 type MerchantFormValues = z.infer<typeof merchantFormSchema>;
-type EditMerchantFormValues = z.infer<typeof editMerchantFormSchema>;
 
 export default function AdminMerchants() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isAddMerchantDialogOpen, setIsAddMerchantDialogOpen] = useState(false);
-  const [isEditMerchantDialogOpen, setIsEditMerchantDialogOpen] = useState(false);
   const [selectedMerchant, setSelectedMerchant] = useState<any | null>(null);
   const { toast } = useToast();
 
@@ -76,23 +60,6 @@ export default function AdminMerchants() {
       city: "",
       state: "",
       commission_rate: "2.0"
-    },
-  });
-
-  // Hook de formulário para editar lojista
-  const editForm = useForm<EditMerchantFormValues>({
-    resolver: zodResolver(editMerchantFormSchema),
-    defaultValues: {
-      user_name: "",
-      user_email: "",
-      user_phone: "",
-      store_name: "",
-      category: "Geral",
-      address: "",
-      city: "",
-      state: "",
-      commission_rate: "2.0",
-      approved: true
     },
   });
   
@@ -128,191 +95,56 @@ export default function AdminMerchants() {
       });
     }
   });
-
-  // Mutation para editar lojista
-  const editMerchantMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: EditMerchantFormValues }) => {
-      const response = await apiRequest("PUT", `/api/admin/merchants/${id}`, data);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Erro ao editar lojista");
-      }
-      return await response.json();
-    },
-    onSuccess: () => {
-      setIsEditMerchantDialogOpen(false);
-      setSelectedMerchant(null);
-      
-      toast({
-        title: "Lojista atualizado",
-        description: "Os dados do lojista foram atualizados com sucesso",
-      });
-      
-      // Recarregar a lista de lojistas
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users', 'merchant'] });
-      
-      // Limpar formulário
-      editForm.reset();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Erro",
-        description: error.message || "Ocorreu um erro ao editar o lojista",
-        variant: "destructive",
-      });
-    }
-  });
-
-  // Mutation para excluir lojista
-  const deleteMerchantMutation = useMutation({
-    mutationFn: async (merchantId: number) => {
-      const response = await apiRequest("DELETE", `/api/admin/merchants/${merchantId}`);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Erro ao excluir lojista");
-      }
-      return await response.json();
-    },
-    onSuccess: (data) => {
-      setIsDialogOpen(false);
-      setSelectedMerchant(null);
-      
-      // Verificar se foi desativado ou excluído
-      const isDeactivated = data.message?.includes("desativado");
-      
-      toast({
-        title: isDeactivated ? "Lojista desativado" : "Lojista excluído",
-        description: data.message || "Operação realizada com sucesso",
-        variant: isDeactivated ? "default" : "destructive",
-      });
-      
-      // Invalidar múltiplas queries para garantir atualização
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/merchants'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users', 'merchant'] });
-      
-      // Forçar refetch dos dados
-      refetch();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Erro",
-        description: error.message || "Ocorreu um erro ao excluir o lojista",
-        variant: "destructive",
-      });
-    }
-  });
   
   function onSubmit(data: MerchantFormValues) {
     createMerchantMutation.mutate(data);
   }
-
-  function onEditSubmit(data: EditMerchantFormValues) {
-    if (selectedMerchant) {
-      editMerchantMutation.mutate({ id: selectedMerchant.id, data });
-    }
-  }
   
-  // Query para buscar todos os lojistas - CORRIGIDO
-  const { data: userData, isLoading, error, refetch } = useQuery({
+  // Query para buscar todos os lojistas
+  const { data: userData, isLoading, error } = useQuery({
     queryKey: ['/api/admin/users', 'merchant'],
     queryFn: async () => {
-      try {
-        console.log('🔄 Buscando lojistas...');
-        
-        const response = await fetch('/api/admin/users?pageSize=200', {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        });
-        
-        if (!response.ok) {
-          console.error('❌ Erro na resposta:', response.status);
-          throw new Error('Erro ao buscar lojistas');
-        }
-        
-        const result = await response.json();
-        console.log('✅ Total de usuários recebidos:', result.length);
-        
-        // Filtrar apenas merchants
-        const merchants = Array.isArray(result) ? result.filter(user => user.type === 'merchant') : [];
-        console.log('🏪 Total de lojistas filtrados:', merchants.length);
-        
-        return merchants;
-      } catch (error) {
-        console.error('💥 Erro na busca de lojistas:', error);
-        throw error;
+      console.log('🏪 Buscando lojistas...');
+      // Buscar usuários com o filtro de lojistas
+      const response = await fetch('/api/admin/users?userType=merchant&page=1&pageSize=100');
+      if (!response.ok) {
+        throw new Error('Erro ao buscar lojistas');
       }
+      const data = await response.json();
+      console.log('🏪 Lojistas carregados:', data);
+      return data.users || [];
     },
-    retry: 3,
-    retryDelay: 1000,
-    staleTime: 0
+    staleTime: 0,
+    retry: 1,
   });
 
-  // Função para formatar dados para a tabela - CORRIGIDA
+  // Função para formatar dados para a tabela
   const formatTableData = (users: any[]) => {
-    if (!users || !Array.isArray(users)) {
-      console.log('❌ Dados de lojistas inválidos:', users);
-      return [];
-    }
+    if (!users || !Array.isArray(users)) return [];
 
-    console.log('🔄 Formatando dados da tabela para', users.length, 'lojistas');
-
-    // Os dados já vêm filtrados como merchants da query acima
-    const formattedData = users.map(user => ({
-      id: user.id,
-      name: user.name || 'Nome não informado',
-      email: user.email || 'Email não informado',
-      status: user.status || 'active',
-      lastLogin: user.last_login ? format(new Date(user.last_login), 'dd/MM/yyyy HH:mm') : 'Nunca',
-      created: user.created_at ? format(new Date(user.created_at), 'dd/MM/yyyy') : '-',
-      photo: user.photo,
-      phone: user.phone || '-',
-      country: user.country || '-',
-      store_name: user.store_name || "Loja não configurada",
-      // Adicionar campos calculados para a visualização
-      sales_count: 0, // Será calculado em futuras implementações
-      total_sales: 0, // Será calculado em futuras implementações
-      ...user // preserve all other fields
-    }));
-
-    console.log('✅ Dados formatados:', formattedData.length, 'lojistas');
-    return formattedData;
+    return users
+      .filter(user => user.type === 'merchant')
+      .map(user => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        status: user.status,
+        lastLogin: user.last_login ? format(new Date(user.last_login), 'dd/MM/yyyy HH:mm') : 'Nunca',
+        created: user.created_at ? format(new Date(user.created_at), 'dd/MM/yyyy') : '-',
+        photo: user.photo,
+        phone: user.phone,
+        country: user.country,
+        store_name: user.store_name || "Sem loja configurada",
+        // Adicionar campos calculados para a visualização
+        sales_count: 0, // Temporariamente definido como 0
+        total_sales: 0, // Temporariamente definido como 0
+        ...user // preserve all other fields
+      }));
   };
 
   const handleViewMerchant = (merchant: any) => {
     setSelectedMerchant(merchant);
     setIsDialogOpen(true);
-  };
-
-  const handleEditMerchant = (merchant: any) => {
-    setSelectedMerchant(merchant);
-    
-    // Preencher o formulário de edição com os dados do merchant
-    editForm.reset({
-      user_name: merchant.name || "",
-      user_email: merchant.email || "",
-      user_phone: merchant.phone || "",
-      store_name: merchant.store_name || "",
-      category: merchant.category || "Geral",
-      address: merchant.address || "",
-      city: merchant.city || "",
-      state: merchant.state || "",
-      commission_rate: merchant.commission_rate || "2.0",
-      approved: merchant.status === 'active'
-    });
-    
-    setIsEditMerchantDialogOpen(true);
-  };
-
-  const handleDeleteMerchant = (merchant: any) => {
-    if (window.confirm(`Tem certeza que deseja excluir o lojista "${merchant.name}"?\n\nEsta ação não pode ser desfeita.`)) {
-      deleteMerchantMutation.mutate(merchant.id);
-    }
   };
 
   const handleBlockMerchant = (merchant: any) => {
@@ -409,17 +241,6 @@ export default function AdminMerchants() {
       label: "Ver detalhes",
       icon: <Eye className="h-4 w-4" />,
       onClick: handleViewMerchant,
-    },
-    {
-      label: "Editar",
-      icon: <Edit className="h-4 w-4" />,
-      onClick: handleEditMerchant,
-    },
-    {
-      label: "Excluir",
-      icon: <Trash2 className="h-4 w-4" />,
-      onClick: handleDeleteMerchant,
-      className: "text-red-600 hover:text-red-800",
     },
     {
       label: "Bloquear/Desbloquear",
@@ -980,260 +801,6 @@ export default function AdminMerchants() {
               </DialogFooter>
             </form>
           </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Diálogo de Editar Lojista */}
-      <Dialog open={isEditMerchantDialogOpen} onOpenChange={setIsEditMerchantDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Editar Lojista</DialogTitle>
-            <DialogDescription>
-              Atualize os dados do lojista e sua loja
-            </DialogDescription>
-          </DialogHeader>
-          
-          <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={editForm.control}
-                  name="user_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome do Lojista</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Nome completo" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={editForm.control}
-                  name="user_email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input type="email" placeholder="email@exemplo.com" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={editForm.control}
-                  name="user_phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Telefone</FormLabel>
-                      <FormControl>
-                        <Input placeholder="(11) 99999-9999" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={editForm.control}
-                  name="store_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome da Loja</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Nome da loja" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={editForm.control}
-                  name="category"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Categoria</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione uma categoria" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Alimentação">Alimentação</SelectItem>
-                          <SelectItem value="Eletrônicos">Eletrônicos</SelectItem>
-                          <SelectItem value="Roupas">Roupas</SelectItem>
-                          <SelectItem value="Casa e Jardim">Casa e Jardim</SelectItem>
-                          <SelectItem value="Saúde e Beleza">Saúde e Beleza</SelectItem>
-                          <SelectItem value="Esportes">Esportes</SelectItem>
-                          <SelectItem value="Serviços">Serviços</SelectItem>
-                          <SelectItem value="Geral">Geral</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={editForm.control}
-                  name="commission_rate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Taxa de Comissão (%)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.1" placeholder="2.0" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FormField
-                  control={editForm.control}
-                  name="address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Endereço</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Rua, número" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={editForm.control}
-                  name="city"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Cidade</FormLabel>
-                      <FormControl>
-                        <Input placeholder="São Paulo" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={editForm.control}
-                  name="state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Estado</FormLabel>
-                      <FormControl>
-                        <Input placeholder="SP" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <FormField
-                control={editForm.control}
-                name="approved"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Lojista Aprovado</FormLabel>
-                      <FormDescription>
-                        Ativar ou desativar o lojista na plataforma
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <input
-                        type="checkbox"
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.target.checked)}
-                        className="h-4 w-4"
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              
-              <DialogFooter className="mt-6 gap-2">
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => setIsEditMerchantDialogOpen(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button 
-                  type="submit"
-                  disabled={editMerchantMutation.isPending}
-                >
-                  {editMerchantMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Salvar Alterações
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog de Confirmação de Exclusão */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center text-destructive">
-              <AlertTriangle className="h-5 w-5 mr-2" />
-              Confirmar Exclusão
-            </DialogTitle>
-            <DialogDescription>
-              Esta ação pode desativar o lojista se houver transações associadas ou excluí-lo permanentemente caso contrário.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedMerchant && (
-            <div className="flex items-center space-x-4 py-2 border rounded-md p-3 bg-muted/30">
-              <Avatar>
-                <AvatarFallback className="bg-accent text-white">
-                  {selectedMerchant.name?.charAt(0)?.toUpperCase() || "?"}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <h4 className="text-sm font-semibold">{selectedMerchant.name}</h4>
-                <p className="text-sm text-muted-foreground">{selectedMerchant.email}</p>
-                <p className="text-xs text-muted-foreground">Loja: {selectedMerchant.storeName || "N/A"}</p>
-              </div>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setIsDialogOpen(false);
-                setSelectedMerchant(null);
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button 
-              variant="destructive"
-              onClick={() => {
-                if (selectedMerchant) {
-                  deleteMerchantMutation.mutate(selectedMerchant.id);
-                }
-              }}
-              disabled={deleteMerchantMutation.isPending}
-            >
-              {deleteMerchantMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirmar Exclusão
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </DashboardLayout>

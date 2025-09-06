@@ -56,8 +56,7 @@ export function DownloadButton({
       })
       .catch(error => {
         console.error('Erro durante o download:', error);
-        // Fallback: tentar abrir o link diretamente
-        window.open(fileUrl, '_blank');
+        alert(`Não foi possível baixar o arquivo. Tente novamente ou use a versão online.`);
       });
   };
 

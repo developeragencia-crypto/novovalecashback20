@@ -25,16 +25,22 @@ export default function ClientReferrals() {
   const [activeTab, setActiveTab] = useState("overview");
   
   // Query para buscar informações sobre indicações do usuário
-  const { data: referralsData, isLoading: isReferralsLoading, error: referralsError, refetch } = useQuery({
+  const { data: referralsData, isLoading: isReferralsLoading, error: referralsError } = useQuery({
     queryKey: ['/api/client/referrals'],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/client/referrals");
-      return await response.json();
-    },
-    retry: 2,
+    retry: 1,
     refetchOnWindowFocus: false,
-    staleTime: 30000,
-    enabled: !!user
+    refetchInterval: false, // Evita polling infinito
+    staleTime: 60000, // Dados são considerados atualizados por 1 minuto
+    placeholderData: {
+      referralCode: user?.invitation_code || "ABC123",
+      referralUrl: `https://valecashback.com/convite/${user?.invitation_code || "ABC123"}`,
+      referralsCount: 0,
+      pendingReferrals: 0,
+      totalEarned: "0.00",
+      commission: "1.0", // Taxa de comissão - será substituída pelos dados do banco
+      referrals: []
+    },
+    enabled: !!user // Só executa se o usuário estiver autenticado
   });
   
   // Exibir erro no console para diagnóstico
@@ -146,108 +152,65 @@ export default function ClientReferrals() {
     { 
       header: t('common.type'), 
       accessorKey: "user_type",
-      cell: ({ row }: any) => {
-        const item = row.original;
-        return (
-          <div className="flex items-center">
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-              item.user_type === "merchant" 
-                ? "bg-blue-100 text-blue-800" 
-                : "bg-purple-100 text-purple-800"
-            }`}>
-              {item.user_type === "merchant" ? 'Lojista' : 'Cliente'}
-            </span>
-          </div>
-        );
-      }
+      cell: (row: any) => (
+        <div className="flex items-center">
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+            row.user_type === "merchant" 
+              ? "bg-blue-100 text-blue-800" 
+              : "bg-purple-100 text-purple-800"
+          }`}>
+            {row.user_type === "merchant" ? t('users.merchant') : t('users.client')}
+          </span>
+        </div>
+      )
     },
     { 
       header: t('common.contact'), 
       accessorKey: "email",
-      cell: ({ row }: any) => {
-        const item = row.original;
-        return (
-          <div className="flex flex-col text-xs">
-            <span>{item.email || t('common.emailNotProvided')}</span>
-            <span className="text-muted-foreground">{item.phone || t('common.phoneNotProvided')}</span>
-          </div>
-        );
-      }
+      cell: (row: any) => (
+        <div className="flex flex-col text-xs">
+          <span>{row.email || t('common.emailNotProvided')}</span>
+          <span className="text-muted-foreground">{row.phone || t('common.phoneNotProvided')}</span>
+        </div>
+      )
     },
     { 
       header: t('merchant.storeName'), 
       accessorKey: "store_name",
-      cell: ({ row }: any) => {
-        const item = row.original;
-        return (
-          <div className="flex items-center">
-            {item.user_type === "merchant" ? (
-              <span>{item.store_name || t('merchant.noStoreName')}</span>
-            ) : (
-              <span className="text-muted-foreground text-xs">N/A</span>
-            )}
-          </div>
-        );
-      }
-    },
-    { 
-      header: "Total Gasto", 
-      accessorKey: "total_spent",
-      cell: ({ row }: any) => {
-        const item = row.original;
-        return (
-          <div className="flex items-center">
-            <span className="font-medium text-blue-600">$ {parseFloat(item.total_spent || '0').toFixed(2)}</span>
-          </div>
-        );
-      }
-    },
-    { 
-      header: "Transações", 
-      accessorKey: "total_transactions",
-      cell: ({ row }: any) => {
-        const item = row.original;
-        return (
-          <div className="flex items-center">
-            <span className="px-2 py-1 rounded bg-gray-100 text-xs font-medium">
-              {item.total_transactions || 0}
-            </span>
-          </div>
-        );
-      }
+      cell: (row: any) => (
+        <div className="flex items-center">
+          {row.user_type === "merchant" ? (
+            <span>{row.store_name || t('merchant.noStoreName')}</span>
+          ) : (
+            <span className="text-muted-foreground text-xs">N/A</span>
+          )}
+        </div>
+      )
     },
     { header: t('common.date'), accessorKey: "date" },
     { 
       header: t('common.status'), 
       accessorKey: "status",
-      cell: ({ row }: any) => {
-        const item = row.original;
-        return (
-          <div className="flex items-center">
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-              item.status === "approved" 
-                ? "bg-green-100 text-green-800" 
-                : "bg-yellow-100 text-yellow-800"
-            }`}>
-              {item.status === "approved" ? "Aprovado" : "Pendente"}
-            </span>
-          </div>
-        );
-      }
+      cell: (row: any) => (
+        <div className="flex items-center">
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+            row.status === "active" 
+              ? "bg-green-100 text-green-800" 
+              : "bg-yellow-100 text-yellow-800"
+          }`}>
+            {row.status === "active" ? t('common.active') : t('common.pending')}
+          </span>
+        </div>
+      )
     },
     { 
-      header: "Comissão Ganha", 
+      header: t('referrals.commission'), 
       accessorKey: "commission",
-      cell: ({ row }: any) => {
-        const item = row.original;
-        return (
-          <div className="flex items-center">
-            <span className={`font-medium ${parseFloat(item.commission || '0') > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-              $ {parseFloat(item.commission || '0').toFixed(2)}
-            </span>
-          </div>
-        );
-      }
+      cell: (row: any) => (
+        <div className="flex items-center">
+          <span className="font-medium">$ {row.commission}</span>
+        </div>
+      )
     },
   ];
 
@@ -408,28 +371,21 @@ export default function ClientReferrals() {
                         whileHover={{ scale: 1.02, boxShadow: "0 5px 15px rgba(0,0,0,0.1)" }}
                       >
                         <span className="text-4xl font-bold text-blue-600">{referralsData?.referralsCount || 0}</span>
-                        <span className="text-sm mt-1">Total Indicações</span>
-                      </motion.div>
-                      <motion.div 
-                        className="flex flex-col items-center justify-center p-5 bg-gradient-to-b from-green-50 to-green-100 rounded-lg shadow-sm"
-                        whileHover={{ scale: 1.02, boxShadow: "0 5px 15px rgba(0,0,0,0.1)" }}
-                      >
-                        <span className="text-4xl font-bold text-green-600">{referralsData?.approvedReferrals || 0}</span>
-                        <span className="text-sm mt-1">Aprovadas</span>
-                      </motion.div>
-                      <motion.div 
-                        className="flex flex-col items-center justify-center p-5 bg-gradient-to-b from-yellow-50 to-yellow-100 rounded-lg shadow-sm"
-                        whileHover={{ scale: 1.02, boxShadow: "0 5px 15px rgba(0,0,0,0.1)" }}
-                      >
-                        <span className="text-4xl font-bold text-yellow-600">{referralsData?.pendingReferrals || 0}</span>
-                        <span className="text-sm mt-1">Pendentes</span>
+                        <span className="text-sm mt-1">{t('referrals.totalReferrals')}</span>
                       </motion.div>
                       <motion.div 
                         className="flex flex-col items-center justify-center p-5 bg-gradient-to-b from-purple-50 to-purple-100 rounded-lg shadow-sm"
                         whileHover={{ scale: 1.02, boxShadow: "0 5px 15px rgba(0,0,0,0.1)" }}
                       >
-                        <span className="text-4xl font-bold text-purple-600">$ {parseFloat(referralsData?.totalEarned || "0").toFixed(2)}</span>
-                        <span className="text-sm mt-1">Total Ganho</span>
+                        <span className="text-4xl font-bold text-purple-600">{referralsData?.pendingReferrals || 0}</span>
+                        <span className="text-sm mt-1">{t('referrals.pendingReferrals')}</span>
+                      </motion.div>
+                      <motion.div 
+                        className="flex flex-col items-center justify-center p-5 bg-gradient-to-b from-green-50 to-green-100 rounded-lg shadow-sm col-span-2"
+                        whileHover={{ scale: 1.02, boxShadow: "0 5px 15px rgba(0,0,0,0.1)" }}
+                      >
+                        <span className="text-4xl font-bold text-green-600">$ {referralsData?.totalEarned || "0.00"}</span>
+                        <span className="text-sm mt-1">{t('referrals.totalEarned')}</span>
                       </motion.div>
                     </div>
                   </CardContent>
@@ -561,81 +517,10 @@ export default function ClientReferrals() {
                       <RefreshCw className="h-8 w-8 animate-spin text-primary/70" />
                     </div>
                   ) : referralsData?.referrals && referralsData.referrals.length > 0 ? (
-                    <div className="rounded-md border overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contato</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome da Loja</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Gasto</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Transações</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comissão Ganha</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {referralsData.referrals.map((referral: any, index: number) => (
-                              <tr key={index} className="hover:bg-gray-50">
-                                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                  {referral.name}
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap">
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                    referral.user_type === "merchant" 
-                                      ? "bg-blue-100 text-blue-800" 
-                                      : "bg-purple-100 text-purple-800"
-                                  }`}>
-                                    {referral.user_type === "merchant" ? 'Lojista' : 'Cliente'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  <div className="flex flex-col">
-                                    <span>{referral.email || 'Não informado'}</span>
-                                    <span className="text-xs text-gray-400">{referral.phone || 'Não informado'}</span>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  {referral.user_type === "merchant" ? (
-                                    <span>{referral.store_name || 'Sem nome'}</span>
-                                  ) : (
-                                    <span className="text-gray-400 text-xs">N/A</span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                                  $ {parseFloat(referral.total_spent || '0').toFixed(2)}
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap">
-                                  <span className="px-2 py-1 rounded bg-gray-100 text-xs font-medium">
-                                    {referral.total_transactions || 0}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  {referral.date}
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap">
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                    referral.status === "approved" 
-                                      ? "bg-green-100 text-green-800" 
-                                      : "bg-yellow-100 text-yellow-800"
-                                  }`}>
-                                    {referral.status === "approved" ? "Aprovado" : "Pendente"}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
-                                  <span className={`${parseFloat(referral.commission || '0') > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                                    $ {parseFloat(referral.commission || '0').toFixed(2)}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                    <DataTable 
+                      columns={referralsColumns} 
+                      data={referralsData.referrals} 
+                    />
                   ) : (
                     <div className="text-center py-8">
                       <Users className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />

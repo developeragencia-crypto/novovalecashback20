@@ -21,8 +21,7 @@ import {
   TransactionStatus,
   NotificationType,
   auditLogs,
-  userBonuses,
-  withdrawalRequests
+  userBonuses
 } from "@shared/schema";
 import { addAdminRoutes, addMerchantRoutes, addClientRoutes } from "./routes.admin";
 import { addPaymentRoutes } from "./routes.payment";
@@ -64,178 +63,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar autenticação e rotas relacionadas
   setupAuth(app);
   
-  // ======== SISTEMA DE REDEFINIÇÃO DE SENHA ========
-  
-  // Solicitar redefinição de senha (apenas para usuários cadastrados)
-  app.post("/api/password-reset/request", async (req: Request, res: Response) => {
-    try {
-      const { email } = req.body;
-      
-      if (!email) {
-        return res.status(400).json({ message: "Email é obrigatório" });
-      }
-      
-      // Verificar se o usuário existe no sistema
-      const user = await storage.getUserByEmail(email);
-      
-      if (!user) {
-        // Por segurança, não revelamos se o email existe ou não
-        return res.json({ 
-          message: "Se o email estiver cadastrado, você receberá instruções para redefinir sua senha." 
-        });
-      }
-      
-      // Gerar token de redefinição
-      const token = await storage.createPasswordResetToken(user.id);
-      
-      // Criar notificação no sistema para o usuário
-      await storage.createNotification({
-        user_id: user.id,
-        type: "password_reset",
-        title: "Redefinição de Senha Solicitada",
-        message: `Um link para redefinir sua senha foi gerado. Token: ${token}. Este link expira em 1 hora.`,
-        is_read: false,
-        metadata: JSON.stringify({ token, expires_in: "1 hour" })
-      });
-      
-      console.log(`Token de redefinição criado para usuário ${user.email}: ${token}`);
-      
-      res.json({ 
-        message: "Se o email estiver cadastrado, você receberá instruções para redefinir sua senha.",
-        // Em produção, remover esta linha de debug
-        debug_token: token
-      });
-    } catch (error) {
-      console.error("Erro ao solicitar redefinição de senha:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-  
-  // Validar token de redefinição
-  app.get("/api/password-reset/validate/:token", async (req: Request, res: Response) => {
-    try {
-      const { token } = req.params;
-      
-      const validation = await storage.validatePasswordResetToken(token);
-      
-      if (!validation.valid) {
-        return res.status(400).json({ 
-          message: "Token inválido ou expirado",
-          valid: false 
-        });
-      }
-      
-      res.json({ 
-        message: "Token válido",
-        valid: true,
-        userId: validation.userId 
-      });
-    } catch (error) {
-      console.error("Erro ao validar token:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-  
-  // Redefinir senha com token
-  app.post("/api/password-reset/confirm", async (req: Request, res: Response) => {
-    try {
-      const { token, newPassword } = req.body;
-      
-      if (!token || !newPassword) {
-        return res.status(400).json({ 
-          message: "Token e nova senha são obrigatórios" 
-        });
-      }
-      
-      if (newPassword.length < 6) {
-        return res.status(400).json({ 
-          message: "A senha deve ter pelo menos 6 caracteres" 
-        });
-      }
-      
-      // Validar token
-      const validation = await storage.validatePasswordResetToken(token);
-      
-      if (!validation.valid || !validation.userId) {
-        return res.status(400).json({ 
-          message: "Token inválido ou expirado" 
-        });
-      }
-      
-      // Atualizar senha
-      const success = await storage.updateUserPassword(validation.userId, newPassword);
-      
-      if (!success) {
-        return res.status(500).json({ 
-          message: "Erro ao atualizar senha" 
-        });
-      }
-      
-      // Marcar token como usado
-      await storage.usePasswordResetToken(token);
-      
-      // Criar notificação de confirmação
-      await storage.createNotification({
-        user_id: validation.userId,
-        type: "security_alert",
-        title: "Senha Redefinida com Sucesso",
-        message: "Sua senha foi redefinida com sucesso. Se você não fez esta alteração, entre em contato conosco imediatamente.",
-        is_read: false,
-        metadata: JSON.stringify({ timestamp: new Date().toISOString() })
-      });
-      
-      res.json({ 
-        message: "Senha redefinida com sucesso. Você já pode fazer login com sua nova senha." 
-      });
-    } catch (error) {
-      console.error("Erro ao redefinir senha:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-  
-  // ======== SISTEMA DE NOTIFICAÇÕES ========
-  
-  // Obter notificações do usuário autenticado
-  app.get("/api/notifications", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ message: "Usuário não autenticado" });
-      }
-      const onlyUnread = req.query.unread === 'true';
-      
-      const notifications = await storage.getUserNotifications(userId, onlyUnread);
-      
-      res.json({ notifications });
-    } catch (error) {
-      console.error("Erro ao buscar notificações:", error);
-      res.status(500).json({ message: "Erro ao buscar notificações" });
-    }
-  });
-  
-  // Marcar notificação como lida
-  app.patch("/api/notifications/:id/read", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const notificationId = parseInt(req.params.id);
-      
-      if (isNaN(notificationId)) {
-        return res.status(400).json({ message: "ID de notificação inválido" });
-      }
-      
-      const success = await storage.markNotificationAsRead(notificationId);
-      
-      if (!success) {
-        return res.status(404).json({ message: "Notificação não encontrada" });
-      }
-      
-      res.json({ message: "Notificação marcada como lida" });
-    } catch (error) {
-      console.error("Erro ao marcar notificação como lida:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-  
-  // Rota temporária para redefinir senha diretamente (remova em produção)
+  // Rota temporária para redefinir senha (remova em produção)
   app.post("/api/reset-password", async (req: Request, res: Response) => {
     try {
       const { email, newPassword } = req.body;
@@ -254,46 +82,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Hash da nova senha
       const hashedPassword = await storage.hashPassword(newPassword);
       
-      // Atualizar senha e marcar como atualizada
+      // Atualizar senha
       await db.update(users)
-        .set({ 
-          password: hashedPassword,
-          password_updated: true 
-        })
+        .set({ password: hashedPassword })
         .where(eq(users.email, email));
       
       res.json({ message: "Senha atualizada com sucesso" });
     } catch (error) {
       console.error("Erro ao redefinir senha:", error);
       res.status(500).json({ message: "Erro ao redefinir senha" });
-    }
-  });
-  
-  // Verificar se email já teve senha atualizada
-  app.get("/api/check-password-updated/:email", async (req: Request, res: Response) => {
-    try {
-      const { email } = req.params;
-      
-      if (!email) {
-        return res.status(400).json({ message: "Email é obrigatório" });
-      }
-      
-      const user = await db.select({ password_updated: users.password_updated })
-        .from(users)
-        .where(eq(users.email, email))
-        .limit(1);
-      
-      if (user.length === 0) {
-        return res.json({ passwordUpdated: false, userExists: false });
-      }
-      
-      res.json({ 
-        passwordUpdated: user[0].password_updated || false,
-        userExists: true 
-      });
-    } catch (error) {
-      console.error("Erro ao verificar status da senha:", error);
-      res.status(500).json({ message: "Erro ao verificar status da senha" });
     }
   });
   
@@ -314,508 +111,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Adicionar rotas limpas de relatórios
   addCleanReportsRoutes(app);
   
-  // ======== ROTAS DE PRODUTOS ========
-
-  // Obter todos os produtos
-  app.get("/api/products", async (req, res) => {
-    try {
-      const allProducts = await db
-        .select({
-          id: products.id,
-          name: products.name,
-          description: products.description,
-          price: products.price,
-          category: products.category,
-          inventory_count: products.inventory_count,
-          active: products.active,
-          created_at: products.created_at,
-          merchant_id: products.merchant_id,
-          merchant_name: merchants.store_name,
-          merchant_logo: merchants.logo,
-        })
-        .from(products)
-        .leftJoin(merchants, eq(products.merchant_id, merchants.id))
-        .where(eq(products.active, true))
-        .orderBy(desc(products.created_at));
-
-      res.json(allProducts);
-    } catch (error) {
-      console.error("Erro ao buscar produtos:", error);
-      res.status(500).json({ message: "Erro ao buscar produtos" });
-    }
-  });
-
-  // Obter produto específico
-  app.get("/api/products/:id", async (req, res) => {
-    try {
-      const productId = parseInt(req.params.id);
-      
-      const [product] = await db
-        .select({
-          id: products.id,
-          name: products.name,
-          description: products.description,
-          price: products.price,
-          category: products.category,
-          inventory_count: products.inventory_count,
-          active: products.active,
-          created_at: products.created_at,
-          merchant_id: products.merchant_id,
-          merchant_name: merchants.store_name,
-          merchant_logo: merchants.logo,
-        })
-        .from(products)
-        .leftJoin(merchants, eq(products.merchant_id, merchants.id))
-        .where(eq(products.id, productId));
-
-      if (!product) {
-        return res.status(404).json({ message: "Produto não encontrado" });
-      }
-
-      res.json(product);
-    } catch (error) {
-      console.error("Erro ao buscar produto:", error);
-      res.status(500).json({ message: "Erro ao buscar produto" });
-    }
-  });
-
-  // ======== ROTAS DE CASHBACK ========
-
-  // Obter saldo de cashback do usuário
-  app.get("/api/user/cashback", isAuthenticated, async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Usuário não autenticado" });
-      }
-
-      // Buscar saldo de cashback do usuário
-      const [userCashback] = await db
-        .select()
-        .from(cashbacks)
-        .where(eq(cashbacks.user_id, req.user.id))
-        .limit(1);
-
-      // Se não existir registro, criar um com saldo zero
-      let cashbackData = userCashback;
-      if (!userCashback) {
-        const [newCashback] = await db
-          .insert(cashbacks)
-          .values({
-            user_id: req.user.id,
-            balance: "0.00",
-            total_earned: "0.00",
-            total_spent: "0.00"
-          })
-          .returning();
-        cashbackData = newCashback;
-      }
-
-      // Buscar transações recentes do usuário
-      const recentTransactions = await db
-        .select({
-          id: transactions.id,
-          amount: transactions.amount,
-          cashback_amount: transactions.cashback_amount,
-          description: transactions.description,
-          status: transactions.status,
-          created_at: transactions.created_at,
-          merchant_name: merchants.store_name
-        })
-        .from(transactions)
-        .leftJoin(merchants, eq(transactions.merchant_id, merchants.id))
-        .where(eq(transactions.user_id, req.user.id))
-        .orderBy(desc(transactions.created_at))
-        .limit(10);
-
-      res.json({
-        balance: parseFloat(cashbackData.balance || "0"),
-        total_earned: parseFloat(cashbackData.total_earned || "0"),
-        total_spent: parseFloat(cashbackData.total_spent || "0"),
-        recent_transactions: recentTransactions
-      });
-    } catch (error) {
-      console.error("Erro ao buscar cashback do usuário:", error);
-      res.status(500).json({ message: "Erro ao buscar dados de cashback" });
-    }
-  });
-
-  // ======== ROTAS DE DASHBOARD ========
-
-  // Dashboard do cliente
-  app.get("/api/client/dashboard", isAuthenticated, async (req, res) => {
-    try {
-      if (!req.user || req.user.type !== 'client') {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-
-      // Buscar saldo de cashback
-      const [userCashback] = await db
-        .select()
-        .from(cashbacks)
-        .where(eq(cashbacks.user_id, req.user.id))
-        .limit(1);
-
-      // Buscar transações recentes
-      const recentTransactions = await db
-        .select({
-          id: transactions.id,
-          amount: transactions.amount,
-          cashback_amount: transactions.cashback_amount,
-          description: transactions.description,
-          status: transactions.status,
-          created_at: transactions.created_at,
-          merchant_name: merchants.store_name
-        })
-        .from(transactions)
-        .leftJoin(merchants, eq(transactions.merchant_id, merchants.id))
-        .where(eq(transactions.user_id, req.user.id))
-        .orderBy(desc(transactions.created_at))
-        .limit(5);
-
-      // Contar total de transações
-      const [transactionCount] = await db
-        .select({ count: count() })
-        .from(transactions)
-        .where(eq(transactions.user_id, req.user.id));
-
-      // Buscar referências
-      const [referralData] = await db
-        .select({ 
-          count: count(),
-          total_bonus: sql`COALESCE(SUM(bonus), 0)` 
-        })
-        .from(referrals)
-        .where(eq(referrals.referrer_id, req.user.id));
-
-      const dashboardData = {
-        cashbackBalance: parseFloat(userCashback?.balance || "0"),
-        referralBalance: parseFloat(referralData?.total_bonus || "0"),
-        transactionsCount: Number(transactionCount.count) || 0,
-        recentTransactions: recentTransactions.map(tx => ({
-          id: tx.id,
-          merchant: tx.merchant_name || "Loja",
-          date: tx.created_at?.toISOString() || new Date().toISOString(),
-          amount: parseFloat(tx.amount || "0"),
-          cashback: parseFloat(tx.cashback_amount || "0"),
-          status: tx.status || "pending"
-        })),
-        monthStats: {
-          earned: parseFloat(userCashback?.total_earned || "0"),
-          transferred: 0,
-          received: parseFloat(referralData?.total_bonus || "0")
-        },
-        balanceHistory: [
-          { month: "Jan", value: parseFloat(userCashback?.balance || "0") * 0.3 },
-          { month: "Fev", value: parseFloat(userCashback?.balance || "0") * 0.5 },
-          { month: "Mar", value: parseFloat(userCashback?.balance || "0") * 0.8 },
-          { month: "Abr", value: parseFloat(userCashback?.balance || "0") }
-        ]
-      };
-
-      res.json(dashboardData);
-    } catch (error) {
-      console.error("Erro ao buscar dashboard do cliente:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-
-  // Dashboard do merchant
-  app.get("/api/merchant/dashboard", isAuthenticated, async (req, res) => {
-    try {
-      if (!req.user || req.user.type !== 'merchant') {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-
-      // Buscar loja do merchant
-      const [merchant] = await db
-        .select()
-        .from(merchants)
-        .where(eq(merchants.user_id, req.user.id))
-        .limit(1);
-
-      if (!merchant) {
-        return res.status(404).json({ message: "Loja não encontrada" });
-      }
-
-      // Buscar transações da loja
-      const recentTransactions = await db
-        .select({
-          id: transactions.id,
-          amount: transactions.amount,
-          cashback_amount: transactions.cashback_amount,
-          description: transactions.description,
-          status: transactions.status,
-          created_at: transactions.created_at,
-          client_name: users.name
-        })
-        .from(transactions)
-        .leftJoin(users, eq(transactions.user_id, users.id))
-        .where(eq(transactions.merchant_id, merchant.id))
-        .orderBy(desc(transactions.created_at))
-        .limit(5);
-
-      // Calcular estatísticas
-      const [salesStats] = await db
-        .select({
-          total_sales: sql`COALESCE(SUM(amount), 0)`,
-          total_transactions: count(),
-          total_cashback: sql`COALESCE(SUM(cashback_amount), 0)`
-        })
-        .from(transactions)
-        .where(eq(transactions.merchant_id, merchant.id));
-
-      // Calcular vendas do mês atual
-      const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const [monthlyStats] = await db
-        .select({
-          monthly_sales: sql`COALESCE(SUM(amount), 0)`,
-          monthly_transactions: count()
-        })
-        .from(transactions)
-        .where(and(
-          eq(transactions.merchant_id, merchant.id),
-          gte(transactions.created_at, startOfMonth)
-        ));
-
-      const dashboardData = {
-        totalSales: parseFloat(salesStats?.total_sales || "0"),
-        totalTransactions: Number(salesStats?.total_transactions) || 0,
-        totalCashback: parseFloat(salesStats?.total_cashback || "0"),
-        monthlySales: parseFloat(monthlyStats?.monthly_sales || "0"),
-        monthlyTransactions: Number(monthlyStats?.monthly_transactions) || 0,
-        commission: parseFloat(salesStats?.total_sales || "0") * 0.02, // 2% de comissão
-        recentTransactions: recentTransactions.map(tx => ({
-          id: tx.id,
-          client: tx.client_name || "Cliente",
-          date: tx.created_at?.toISOString() || new Date().toISOString(),
-          amount: parseFloat(tx.amount || "0"),
-          cashback: parseFloat(tx.cashback_amount || "0"),
-          status: tx.status || "pending"
-        })),
-        salesHistory: [
-          { month: "Jan", sales: parseFloat(salesStats?.total_sales || "0") * 0.2 },
-          { month: "Fev", sales: parseFloat(salesStats?.total_sales || "0") * 0.4 },
-          { month: "Mar", sales: parseFloat(salesStats?.total_sales || "0") * 0.7 },
-          { month: "Abr", sales: parseFloat(salesStats?.total_sales || "0") }
-        ]
-      };
-
-      res.json(dashboardData);
-    } catch (error) {
-      console.error("Erro ao buscar dashboard do merchant:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-
-  // Dashboard do admin
-  app.get("/api/admin/dashboard", isAuthenticated, async (req, res) => {
-    try {
-      if (!req.user || req.user.type !== 'admin') {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-
-      // Estatísticas gerais do sistema
-      const [userStats] = await db
-        .select({
-          total_users: count(),
-          clients: sql`COUNT(CASE WHEN type = 'client' THEN 1 END)`,
-          merchants: sql`COUNT(CASE WHEN type = 'merchant' THEN 1 END)`
-        })
-        .from(users);
-
-      const [transactionStats] = await db
-        .select({
-          total_transactions: count(),
-          total_volume: sql`COALESCE(SUM(amount), 0)`,
-          total_cashback: sql`COALESCE(SUM(cashback_amount), 0)`
-        })
-        .from(transactions);
-
-      const [storeStats] = await db
-        .select({
-          total_stores: count(),
-          active_stores: sql`COUNT(CASE WHEN approved = true THEN 1 END)`
-        })
-        .from(merchants);
-
-      // Transações recentes para admin
-      const recentTransactions = await db
-        .select({
-          id: transactions.id,
-          amount: transactions.amount,
-          cashback_amount: transactions.cashback_amount,
-          description: transactions.description,
-          status: transactions.status,
-          created_at: transactions.created_at,
-          client_name: users.name,
-          merchant_name: merchants.store_name
-        })
-        .from(transactions)
-        .leftJoin(users, eq(transactions.user_id, users.id))
-        .leftJoin(merchants, eq(transactions.merchant_id, merchants.id))
-        .orderBy(desc(transactions.created_at))
-        .limit(10);
-
-      const dashboardData = {
-        totalUsers: Number(userStats?.total_users) || 0,
-        totalClients: Number(userStats?.clients) || 0,
-        totalMerchants: Number(userStats?.merchants) || 0,
-        totalStores: Number(storeStats?.total_stores) || 0,
-        activeStores: Number(storeStats?.active_stores) || 0,
-        totalTransactions: Number(transactionStats?.total_transactions) || 0,
-        totalVolume: parseFloat(transactionStats?.total_volume || "0"),
-        totalCashback: parseFloat(transactionStats?.total_cashback || "0"),
-        platformRevenue: parseFloat(transactionStats?.total_volume || "0") * 0.05, // 5% de taxa da plataforma
-        recentTransactions: recentTransactions.map(tx => ({
-          id: tx.id,
-          client: tx.client_name || "Cliente",
-          merchant: tx.merchant_name || "Loja",
-          date: tx.created_at?.toISOString() || new Date().toISOString(),
-          amount: parseFloat(tx.amount || "0"),
-          cashback: parseFloat(tx.cashback_amount || "0"),
-          status: tx.status || "pending"
-        })),
-        monthlyStats: [
-          { month: "Jan", users: Number(userStats?.total_users) * 0.3, volume: parseFloat(transactionStats?.total_volume || "0") * 0.2 },
-          { month: "Fev", users: Number(userStats?.total_users) * 0.5, volume: parseFloat(transactionStats?.total_volume || "0") * 0.4 },
-          { month: "Mar", users: Number(userStats?.total_users) * 0.8, volume: parseFloat(transactionStats?.total_volume || "0") * 0.7 },
-          { month: "Abr", users: Number(userStats?.total_users), volume: parseFloat(transactionStats?.total_volume || "0") }
-        ]
-      };
-
-      res.json(dashboardData);
-    } catch (error) {
-      console.error("Erro ao buscar dashboard do admin:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-
-  // Transações do cliente
-  app.get("/api/client/transactions", isAuthenticated, async (req, res) => {
-    try {
-      if (!req.user || req.user.type !== 'client') {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-
-      const { period = "30days", store = "all", status = "all" } = req.query;
-
-      let whereConditions = [eq(transactions.user_id, req.user.id)];
-
-      // Filtro por período
-      if (period !== "all") {
-        const daysAgo = period === "7days" ? 7 : period === "30days" ? 30 : period === "90days" ? 90 : 365;
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - daysAgo);
-        whereConditions.push(gte(transactions.created_at, startDate));
-      }
-
-      // Filtro por loja
-      if (store !== "all") {
-        whereConditions.push(eq(transactions.merchant_id, parseInt(store as string)));
-      }
-
-      // Filtro por status
-      if (status !== "all") {
-        whereConditions.push(eq(transactions.status, status as string));
-      }
-
-      const clientTransactions = await db
-        .select({
-          id: transactions.id,
-          amount: transactions.amount,
-          cashback_amount: transactions.cashback_amount,
-          description: transactions.description,
-          status: transactions.status,
-          payment_method: transactions.payment_method,
-          created_at: transactions.created_at,
-          merchant_name: merchants.store_name,
-          merchant_id: transactions.merchant_id
-        })
-        .from(transactions)
-        .leftJoin(merchants, eq(transactions.merchant_id, merchants.id))
-        .where(and(...whereConditions))
-        .orderBy(desc(transactions.created_at));
-
-      const formattedTransactions = clientTransactions.map(tx => ({
-        id: tx.id,
-        merchant: tx.merchant_name || "Loja",
-        date: tx.created_at?.toISOString() || new Date().toISOString(),
-        amount: parseFloat(tx.amount || "0"),
-        cashback: parseFloat(tx.cashback_amount || "0"),
-        status: tx.status || "pending",
-        paymentMethod: tx.payment_method || "cash",
-        description: tx.description || "",
-        merchant_id: tx.merchant_id
-      }));
-
-      res.json(formattedTransactions);
-    } catch (error) {
-      console.error("Erro ao buscar transações do cliente:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-
-  // Referências do cliente
-  app.get("/api/client/referrals", isAuthenticated, async (req, res) => {
-    try {
-      if (!req.user || req.user.type !== 'client') {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-
-      // Buscar código de convite do usuário
-      const referralCode = req.user.invitation_code || `REF${req.user.id}`;
-      const referralUrl = `https://valecashback.com/convite/${referralCode}`;
-
-      // Buscar referências feitas pelo usuário
-      const userReferrals = await db
-        .select({
-          id: referrals.id,
-          referred_user_id: referrals.referred_id,
-          bonus: referrals.bonus,
-          status: referrals.status,
-          created_at: referrals.created_at,
-          referred_name: users.name,
-          referred_email: users.email
-        })
-        .from(referrals)
-        .leftJoin(users, eq(referrals.referred_id, users.id))
-        .where(eq(referrals.referrer_id, req.user.id))
-        .orderBy(desc(referrals.created_at));
-
-      // Calcular estatísticas
-      const [stats] = await db
-        .select({
-          total_referrals: count(),
-          total_earned: sql`COALESCE(SUM(bonus), 0)`,
-          pending_count: sql`COUNT(CASE WHEN status = 'pending' THEN 1 END)`
-        })
-        .from(referrals)
-        .where(eq(referrals.referrer_id, req.user.id));
-
-      const referralsData = {
-        referralCode,
-        referralUrl,
-        referralsCount: Number(stats?.total_referrals) || 0,
-        pendingReferrals: Number(stats?.pending_count) || 0,
-        totalEarned: parseFloat(stats?.total_earned || "0").toFixed(2),
-        commission: "5.0", // 5% de comissão por referência
-        referrals: userReferrals.map(ref => ({
-          id: ref.id,
-          name: ref.referred_name || "Usuário",
-          email: ref.referred_email || "",
-          date: ref.created_at?.toISOString() || new Date().toISOString(),
-          bonus: parseFloat(ref.bonus || "0"),
-          status: ref.status || "pending"
-        }))
-      };
-
-      res.json(referralsData);
-    } catch (error) {
-      console.error("Erro ao buscar referências do cliente:", error);
-      res.status(500).json({ message: "Erro interno do servidor" });
-    }
-  });
-
   // ======== ROTAS DE BÔNUS (SEPARADO DO CASHBACK) ========
 
   // Obter bônus disponível do usuário (separado do cashback)
@@ -1319,13 +614,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Agora verificar se já existem configurações
-      const existingSettings = await db.execute(sql`
-        SELECT id, platform_fee, merchant_commission, client_cashback, 
-               referral_bonus, min_withdrawal, max_cashback_bonus 
-        FROM commission_settings LIMIT 1
-      `);
+      const existingSettings = await db.select().from(commissionSettings).limit(1);
       
-      if (!existingSettings.rows.length) {
+      if (existingSettings.length === 0) {
         // Criar configurações padrão usando SQL direto para evitar problemas de schema
         await db.execute(sql`
           INSERT INTO commission_settings (
@@ -1374,12 +665,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (settings.length === 0) {
         // Se não houver configurações, criar as padrões e retornar
         const [newSettings] = await db.insert(commissionSettings).values({
-          platform_fee: DEFAULT_SETTINGS.platformFee,
-          merchant_commission: DEFAULT_SETTINGS.merchantCommission,
-          client_cashback: DEFAULT_SETTINGS.clientCashback,
-          referral_bonus: DEFAULT_SETTINGS.referralBonus,
-          min_withdrawal: DEFAULT_SETTINGS.minWithdrawal,
-          max_cashback_bonus: DEFAULT_SETTINGS.maxCashbackBonus,
+          platformFee: DEFAULT_SETTINGS.platformFee,
+          merchantCommission: DEFAULT_SETTINGS.merchantCommission,
+          clientCashback: DEFAULT_SETTINGS.clientCashback,
+          referralBonus: DEFAULT_SETTINGS.referralBonus,
+          minWithdrawal: DEFAULT_SETTINGS.minWithdrawal,
+          maxCashbackBonus: DEFAULT_SETTINGS.maxCashbackBonus,
         }).returning();
         
         return res.json(newSettings);
@@ -1748,68 +1039,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // API corrigida para listar vendas do merchant
+  // Listar vendas do lojista
   app.get("/api/merchant/sales", isUserType("merchant"), async (req, res) => {
     try {
-      const merchantUserId = req.user?.id;
-      if (!merchantUserId) {
+      if (!req.user) {
         return res.status(401).json({ message: "Usuário não autenticado" });
       }
-
-      // Buscar dados do merchant
-      const [merchant] = await db
+      
+      const merchantId = req.user.id;
+      
+      // Obter dados do merchant
+      const merchantList = await db
         .select()
         .from(merchants)
-        .where(eq(merchants.user_id, merchantUserId));
-
-      if (!merchant) {
+        .where(eq(merchants.user_id, merchantId));
+        
+      if (!merchantList.length) {
         return res.json({ transactions: [] });
       }
-
-      // Buscar todas as transações do merchant com dados do cliente
-      const salesResult = await db.execute(
-        sql`SELECT 
-          t.id,
-          t.user_id,
-          u.name as customer,
-          t.created_at as date,
-          t.amount,
-          t.cashback_amount as cashback,
-          t.status,
-          t.payment_method,
-          COALESCE((
-            SELECT COUNT(*) 
-            FROM transaction_items ti 
-            WHERE ti.transaction_id = t.id
-          ), 0) as items_count
-        FROM transactions t
-        JOIN users u ON t.user_id = u.id
-        WHERE t.merchant_id = ${merchant.id}
-        AND t.status IN ('completed', 'pending', 'cancelled')
-        ORDER BY t.created_at DESC`
-      );
-
-      // Formatar dados para o frontend
-      const formattedSales = salesResult.rows.map(sale => ({
-        id: sale.id,
-        user_id: sale.user_id,
-        customer: sale.customer || 'Cliente desconhecido',
-        date: new Date(sale.date).toLocaleDateString('pt-BR') + ' ' + 
-              new Date(sale.date).toLocaleTimeString('pt-BR'),
-        amount: parseFloat(sale.amount || 0),
-        cashback: parseFloat(sale.cashback || 0),
-        status: sale.status,
-        payment_method: sale.payment_method,
-        items: `${sale.items_count} ${sale.items_count === 1 ? 'item' : 'itens'}`
-      }));
-
-      res.json({ transactions: formattedSales });
+      
+      const merchant = merchantList[0];
+        
+      // Listar transações sem usar orderBy(desc()) - apenas transações válidas
+      const all_transactions_list = await db
+        .select({
+          id: transactions.id,
+          user_id: transactions.user_id,
+          customer: users.name,
+          date: transactions.created_at,
+          amount: transactions.amount,
+          cashback: transactions.cashback_amount,
+          status: transactions.status,
+          payment_method: transactions.payment_method,
+          items: sql`COUNT(${transactionItems.id})::text || ' itens'`.as("items")
+        })
+        .from(transactions)
+        .innerJoin(users, eq(transactions.user_id, users.id))
+        .leftJoin(transactionItems, eq(transactions.id, transactionItems.transaction_id))
+        .where(
+          and(
+            eq(transactions.merchant_id, merchant.id),
+            inArray(transactions.status, ['completed', 'pending'])
+          )
+        )
+        .groupBy(transactions.id, users.name);
+        
+      console.log(`Buscando vendas válidas para lojista (ID ${merchant.id}): ${all_transactions_list.length} encontradas`);
+        
+      // Ordenar manualmente por data de criação (decrescente)
+      const transactions_list = all_transactions_list
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+      res.json({ transactions: transactions_list });
     } catch (error) {
-      console.error("Erro ao buscar vendas do merchant:", error);
+      console.error("Erro ao buscar vendas:", error);
       res.status(500).json({ message: "Erro ao buscar vendas" });
     }
   });
-
+  
   // Gerenciar status de uma venda (cancelar, reembolsar)
   app.put("/api/merchant/sales/:transactionId/status", isUserType("merchant"), async (req, res) => {
     try {
@@ -1906,151 +1193,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
               })
               .where(eq(cashbacks.user_id, transaction.user_id));
               
-            // Criar ou atualizar saldo de cashback
+            // Registrar transação de reversão de cashback
             await db.insert(cashbacks).values({
               user_id: transaction.user_id,
-              balance: "0.0",
-              total_earned: "0.0", 
-              total_spent: "0.0"
-            }).onConflictDoUpdate({
-              target: cashbacks.user_id,
-              set: {
-                balance: sql`${cashbacks.balance} - ${transaction.cashback_amount}`,
-                total_spent: sql`${cashbacks.total_spent} + ${transaction.cashback_amount}`,
-                updated_at: new Date()
-              }
+              transaction_id: transaction.id,
+              amount: (-parseFloat(transaction.cashback_amount)).toString(),
+              status: "reversed",
+              description: "Cancelamento de transação",
+              created_at: new Date()
             });
           }
         }
         
+        // Registrar log
+        console.log(`Transação ${transactionId} cancelada por ${merchantUserId}. Motivo: ${reason || 'Não informado'}`);
+        
         return res.json({ 
-          message: "Transação processada com sucesso",
-          success: true
-        });
-      } catch (error) {
-        console.error("Erro ao processar transação:", error);
-        return res.status(500).json({ 
-          message: "Erro interno do servidor",
-          error: error instanceof Error ? error.message : "Erro desconhecido"
+          message: "Transação cancelada com sucesso",
+          transaction: {
+            id: transactionId,
+            status: TransactionStatus.CANCELLED
+          }
         });
       }
-    });
-
-  // Cancelar transação (novo endpoint)
-  app.patch("/api/merchant/transactions/:id/cancel", isAuthenticated, isUserType("merchant"), async (req: Request, res: Response) => {
-    try {
-      const transactionId = parseInt(req.params.id);
-      const { reason } = req.body;
-      const merchantUserId = (req as any).user.id;
-
-      // Buscar transação
-      const [transaction] = await db
-        .select()
-        .from(transactions)
-        .where(eq(transactions.id, transactionId));
-
-      if (!transaction) {
-        return res.status(404).json({ message: "Transação não encontrada" });
-      }
-
-      // Verificar se o merchant tem permissão
-      const [merchant] = await db
-        .select()
-        .from(merchants)
-        .where(eq(merchants.user_id, merchantUserId));
-
-      if (!merchant || transaction.merchant_id !== merchant.id) {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-
-      // Apenas transações pendentes ou completadas podem ser canceladas
-      if (transaction.status !== "pending" && transaction.status !== "completed") {
-        return res.status(400).json({ 
-          message: "Apenas transações pendentes ou completadas podem ser canceladas"
-        });
-      }
-
-      // Atualizar status da transação
-      await db
-        .update(transactions)
-        .set({ 
-          status: "cancelled",
-          notes: reason || "Cancelada pelo comerciante"
-        })
-        .where(eq(transactions.id, transactionId));
-
-      return res.json({ 
-        message: "Transação cancelada com sucesso",
-        transaction: {
-          id: transactionId,
-          status: "cancelled"
-        }
-      });
-    } catch (error) {
-      console.error("Erro ao cancelar transação:", error);
-      return res.status(500).json({ 
-        message: "Erro interno do servidor"
-      });
-    }
-  });
-
-  // Reembolsar transação (novo endpoint)  
-  app.patch("/api/merchant/transactions/:id/refund", isAuthenticated, isUserType("merchant"), async (req: Request, res: Response) => {
-    try {
-      const transactionId = parseInt(req.params.id);
-      const { reason } = req.body;
-      const merchantUserId = (req as any).user.id;
-
-      // Buscar transação
-      const [transaction] = await db
-        .select()
-        .from(transactions)
-        .where(eq(transactions.id, transactionId));
-
-      if (!transaction) {
-        return res.status(404).json({ message: "Transação não encontrada" });
-      }
-
-      // Verificar se o merchant tem permissão
-      const [merchant] = await db
-        .select()
-        .from(merchants)
-        .where(eq(merchants.user_id, merchantUserId));
-
-      if (!merchant || transaction.merchant_id !== merchant.id) {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-
-      // Apenas transações completadas podem ser reembolsadas
-      if (transaction.status !== "completed") {
+      else if (status === "refunded") {
+        // Apenas transações com status 'completed' podem ser reembolsadas
+        if (currentStatus !== TransactionStatus.COMPLETED) {
           return res.status(400).json({ 
-          message: `Não é possível reembolsar uma transação com status '${transaction.status}'` 
-        });
-      }
-
-      // Atualizar status da transação
-      await db
-        .update(transactions)
-        .set({ 
-          status: "refunded",
-          notes: reason || "Reembolsada pelo comerciante"
-        })
-        .where(eq(transactions.id, transactionId));
-
-      return res.json({ 
-        message: "Transação reembolsada com sucesso",
-        transaction: {
-          id: transactionId,
-          status: "refunded"
+            message: `Não é possível reembolsar uma transação com status '${currentStatus}'` 
+          });
         }
-      });
-    } catch (error) {
-      console.error("Erro ao reembolsar transação:", error);
-      return res.status(500).json({ 
-        message: "Erro interno do servidor"
-      });
-    }
-  });
+        
+        // Atualizar status da transação
+        await db
+          .update(transactions)
+          .set({ 
+            status: TransactionStatus.REFUNDED,
+            updated_at: new Date(),
+            notes: reason ? `${transaction.notes || ''} | Reembolsado: ${reason}` : transaction.notes 
+          })
+          .where(eq(transactions.id, transactionId));
+          
+        // Registrar log
+        console.log(`Transação ${transactionId} reembolsada por ${merchantUserId}. Motivo: ${reason || 'Não informado'}`);
+        
+        return res.json({ 
+          message: "Transação reembolsada com sucesso",
+          transaction: {
+            id: transactionId,
+            status: TransactionStatus.REFUNDED
+          }
+        });
+      } 
+      else if (status === "completed") {
+        // Apenas transações com status 'pending' podem ser completadas
+        if (currentStatus !== TransactionStatus.PENDING) {
+          return res.status(400).json({ 
+            message: `Não é possível completar uma transação com status '${currentStatus}'` 
+          });
+        }
+        
+        // Atualizar status da transação
+        await db
+          .update(transactions)
+          .set({ 
+            status: TransactionStatus.COMPLETED,
+            updated_at: new Date()
+          })
+          .where(eq(transactions.id, transactionId));
+          
+        // Registrar log
+        console.log(`Transação ${transactionId} completada por ${merchantUserId}`);
         
         return res.json({ 
           message: "Transação completada com sucesso",

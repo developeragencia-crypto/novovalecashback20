@@ -39,44 +39,19 @@ export default function AdminCustomers() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
 
-  // Query para buscar todos os clientes - CORRIGIDO
+  // Query para buscar todos os clientes
   const { data = [], isLoading, error } = useQuery<any[]>({
     queryKey: ['/api/admin/users'],
     queryFn: async () => {
-      try {
-        console.log('🔄 Buscando clientes...');
-        
-        const response = await fetch('/api/admin/users?pageSize=200', {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        });
-        
-        if (!response.ok) {
-          console.error('❌ Erro na resposta:', response.status);
-          throw new Error('Erro ao buscar clientes');
-        }
-        
-        const result = await response.json();
-        console.log('✅ Total de usuários recebidos:', result.length);
-        
-        // Filtrar apenas clientes
-        const clients = Array.isArray(result) ? result.filter(user => user.type === 'client') : [];
-        console.log('👥 Total de clientes filtrados:', clients.length);
-        
-        return clients;
-      } catch (error) {
-        console.error('💥 Erro na busca de clientes:', error);
-        throw error;
+      const response = await fetch('/api/admin/users?type=client&pageSize=100');
+      if (!response.ok) {
+        throw new Error('Erro ao buscar clientes');
       }
+      const result = await response.json();
+      console.log("📊 Clientes carregados:", result);
+      return result.users || [];
     },
-    retry: 3,
-    retryDelay: 1000,
-    staleTime: 0
+    retry: 1,
   });
   
   // Query para buscar relatório de comissões (mostra quanto deve a cada cliente)
@@ -85,46 +60,39 @@ export default function AdminCustomers() {
     retry: 1,
   });
 
-  // Função para formatar dados para a tabela - CORRIGIDA
+  // Função para formatar dados para a tabela
   const formatTableData = (users: any[], commissionData: any) => {
-    if (!users || !Array.isArray(users)) {
-      console.log('❌ Dados de usuários inválidos:', users);
-      return [];
-    }
-    
-    console.log('🔄 Formatando dados da tabela para', users.length, 'usuários');
+    if (!users || !Array.isArray(users)) return [];
     
     // Obter dados de comissão por cliente se disponível
     const clientCommissionData = commissionData?.clients || [];
     
-    // Os dados já vêm filtrados como clientes da query acima
-    const formattedData = users.map(user => {
-      // Buscar detalhes de comissão para este cliente
-      const commission = clientCommissionData.find((c: any) => c.id === user.id) || {};
-      
-      return {
-        id: user.id,
-        name: user.name || 'Nome não informado',
-        email: user.email || 'Email não informado',
-        status: user.status || 'active',
-        lastLogin: user.last_login && !isNaN(new Date(user.last_login).getTime()) ? format(new Date(user.last_login), 'dd/MM/yyyy HH:mm') : 'Nunca',
-        created: user.created_at && !isNaN(new Date(user.created_at).getTime()) ? format(new Date(user.created_at), 'dd/MM/yyyy') : '-',
-        photo: user.photo,
-        phone: user.phone || '-',
-        country: user.country || '-',
-        referralCode: user.invitation_code || user.referral_code || '-',
-        // Adicionar dados de comissão do relatório
-        transaction_count: commission.transactionCount || 0,
-        total_cashback: commission.totalCashback || 0,
-        total_spent: commission.totalSpent || 0,
-        avg_transaction: commission.avgTransaction || 0,
-        percent_cashback: commission.percentCashback || 0,
-        ...user // preserve all other fields
-      };
-    });
-    
-    console.log('✅ Dados formatados:', formattedData.length, 'clientes');
-    return formattedData;
+    return users
+      .filter(user => user.type === 'client')
+      .map(user => {
+        // Buscar detalhes de comissão para este cliente
+        const commission = clientCommissionData.find((c: any) => c.id === user.id) || {};
+        
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          status: user.status,
+          lastLogin: user.last_login ? format(new Date(user.last_login), 'dd/MM/yyyy HH:mm') : 'Nunca',
+          created: user.created_at ? format(new Date(user.created_at), 'dd/MM/yyyy') : '-',
+          photo: user.photo,
+          phone: user.phone,
+          country: user.country,
+          referralCode: user.invitation_code,
+          // Adicionar dados de comissão do relatório
+          transaction_count: commission.transactionCount || 0,
+          total_cashback: commission.totalCashback || 0,
+          total_spent: commission.totalSpent || 0,
+          avg_transaction: commission.avgTransaction || 0,
+          percent_cashback: commission.percentCashback || 0,
+          ...user // preserve all other fields
+        };
+      });
   };
 
   const handleUserView = async (userId: number, forceRefresh = false) => {
@@ -344,7 +312,7 @@ export default function AdminCustomers() {
 
       {/* User Details Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-[95vw] w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Detalhes do Cliente</DialogTitle>
             <DialogDescription>
@@ -370,11 +338,11 @@ export default function AdminCustomers() {
               </TabsList>
               
               <TabsContent value="info" className="mt-4">
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-6">
                   {/* Nova interface com cartões para destacar informações */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* Card de perfil do usuário */}
-                    <div className="flex flex-col items-center justify-center p-4 rounded-xl bg-white shadow-sm border border-gray-100">
+                    <div className="flex flex-col items-center justify-center p-6 rounded-xl bg-white shadow-sm border border-gray-100">
                       {selectedUser.photo ? (
                         <Avatar className="w-24 h-24 mb-4 shadow-md">
                           <AvatarImage src={selectedUser.photo} />
@@ -432,9 +400,7 @@ export default function AdminCustomers() {
                           <div className="flex items-center text-sm">
                             <Calendar className="h-4 w-4 mr-2 text-primary" />
                             <span>
-                              Desde {selectedUser.created_at && !isNaN(new Date(selectedUser.created_at).getTime()) 
-                                ? format(new Date(selectedUser.created_at), 'dd/MM/yyyy')
-                                : 'Data não disponível'}
+                              Desde {format(new Date(selectedUser.created_at), 'dd/MM/yyyy')}
                             </span>
                           </div>
                         )}
@@ -442,7 +408,7 @@ export default function AdminCustomers() {
                     </div>
                     
                     {/* Cards de informações financeiras - específico por tipo de usuário */}
-                    <div className={`md:col-span-2 xl:col-span-2 rounded-xl shadow-sm p-4 ${
+                    <div className={`col-span-2 rounded-xl shadow-sm p-6 ${
                       selectedUser.type === 'merchant' ? 'bg-gradient-to-br from-orange-50 to-white border-orange-100' : 'bg-gradient-to-br from-green-50 to-white border-green-100'
                     } border`}>
                       <h3 className={`text-lg font-semibold mb-4 ${
@@ -508,7 +474,7 @@ export default function AdminCustomers() {
                       </div>
                       
                       {/* Estatísticas detalhadas */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3">
                           <div className="text-xs text-muted-foreground mb-1">Média por Transação</div>
                           <div className="font-semibold">${parseFloat(selectedUser.avg_transaction || 0).toFixed(2)}</div>
@@ -525,9 +491,7 @@ export default function AdminCustomers() {
                           <div className="text-xs text-muted-foreground mb-1">Último Acesso</div>
                           <div className="font-semibold">
                             {selectedUser.last_login 
-                              ? (selectedUser.last_login && !isNaN(new Date(selectedUser.last_login).getTime()) 
-                                 ? format(new Date(selectedUser.last_login), 'dd/MM/yyyy')
-                                 : 'Data inválida') 
+                              ? format(new Date(selectedUser.last_login), 'dd/MM/yyyy') 
                               : "Nunca"}
                           </div>
                         </div>
@@ -536,8 +500,8 @@ export default function AdminCustomers() {
                   </div>
                   
                   {/* Detalhes da conta em novo design */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="p-4 sm:p-6 bg-white rounded-xl shadow-sm border border-gray-100">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
                       <h4 className="font-medium mb-4 flex items-center">
                         <User className="h-5 w-5 mr-2 text-primary" />
                         Detalhes da Conta
@@ -573,52 +537,50 @@ export default function AdminCustomers() {
                         <div className="flex justify-between pb-2">
                           <span className="text-muted-foreground">Criado em:</span>
                           <span className="font-medium">
-                            {selectedUser.created_at && !isNaN(new Date(selectedUser.created_at).getTime()) 
-                              ? format(new Date(selectedUser.created_at), 'dd/MM/yyyy')
-                              : 'Data não disponível'}
+                            {format(new Date(selectedUser.created_at), 'dd/MM/yyyy')}
                           </span>
                         </div>
                       </div>
                     </div>
                     
-                    <div className="p-4 sm:p-6 bg-white rounded-xl shadow-sm border border-gray-100">
+                    <div className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
                       <h4 className="font-medium mb-4 flex items-center">
                         <Activity className="h-5 w-5 mr-2 text-primary" />
                         Ações Rápidas
                       </h4>
                       
-                      <div className="space-y-2 sm:space-y-3">
+                      <div className="space-y-4">
                         <Button 
                           variant={selectedUser.status === "active" ? "destructive" : "default"}
-                          className="w-full justify-center text-sm"
+                          className="w-full justify-center"
                           onClick={() => {
                             console.log("Toggle user status:", selectedUser.id);
                           }}
                         >
                           {selectedUser.status === "active" ? (
                             <>
-                              <UserX className="mr-1 h-4 w-4" /> Desativar
+                              <UserX className="mr-2 h-4 w-4" /> Desativar Conta
                             </>
                           ) : (
                             <>
-                              <UserCheck className="mr-1 h-4 w-4" /> Ativar
+                              <UserCheck className="mr-2 h-4 w-4" /> Ativar Conta
                             </>
                           )}
                         </Button>
                         
                         <Button 
                           variant="outline" 
-                          className="w-full justify-center text-sm"
+                          className="w-full justify-center"
                           onClick={() => {
                             window.location.href = `/admin/users/${selectedUser.id}/transactions`;
                           }}
                         >
-                          <Receipt className="mr-1 h-4 w-4" /> Transações
+                          <Receipt className="mr-2 h-4 w-4" /> Ver Transações
                         </Button>
                         
                         <Button 
                           variant="secondary"
-                          className="w-full justify-center text-sm"
+                          className="w-full justify-center"
                           onClick={() => {
                             console.log("Atualizar dados do usuário", selectedUser.id);
                             // Forçar atualização dos dados de saldo
@@ -630,7 +592,7 @@ export default function AdminCustomers() {
                               });
                           }}
                         >
-                          <RefreshCw className="mr-1 h-4 w-4" /> Atualizar
+                          <RefreshCw className="mr-2 h-4 w-4" /> Atualizar Dados
                         </Button>
                       </div>
                     </div>

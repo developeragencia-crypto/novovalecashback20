@@ -1,415 +1,316 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useAuth } from "@/hooks/use-auth";
-import { useToast } from "@/hooks/use-toast";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { useLocation } from "wouter";
+import { useState, useRef, useEffect } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { QrScanner } from "@/components/ui/qr-scanner-fixed";
-import { Loader2, Check, X, Wallet } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { QrCode, Camera, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Html5QrcodeScanner } from "html5-qrcode";
+import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 
-export default function ClientQRCode() {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [, navigate] = useLocation();
-  const [scanning, setScanning] = useState(true);
-  const [manualCode, setManualCode] = useState("");
-  const [paymentData, setPaymentData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [scannerKey, setScannerKey] = useState(Date.now()); // Chave única para forçar remontagem do scanner
+interface PaymentData {
+  merchant_id: number;
+  merchant_name: string;
+  amount?: number;
+  description?: string;
+  type: string;
+}
 
-  // Mutation para processar o pagamento
+export default function ClientQRCode() {
+  const [isScanning, setIsScanning] = useState(false);
+  const [scannedData, setScannedData] = useState<PaymentData | null>(null);
+  const [error, setError] = useState<string>("");
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const { toast } = useToast();
+
+  // Mutation to process payment
   const processPaymentMutation = useMutation({
-    mutationFn: async (data: any) => {
-      console.log("Iniciando o processamento do pagamento:", data);
-      try {
-        const res = await apiRequest("POST", "/api/client/process-payment", data);
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || "Erro ao processar pagamento");
-        }
-        const jsonResponse = await res.json();
-        console.log("Resposta do processamento:", jsonResponse);
-        return jsonResponse;
-      } catch (error) {
-        console.error("Erro no processamento:", error);
-        throw error;
+    mutationFn: async (paymentData: PaymentData) => {
+      const response = await fetch('/api/client/process-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(paymentData),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Erro ao processar pagamento');
       }
+      
+      return response.json();
     },
     onSuccess: (data) => {
       toast({
-        title: "Pagamento realizado com sucesso",
-        description: `Você pagou ${formatCurrency(data.amount)} para ${data.merchant_name}`,
+        title: "Pagamento processado!",
+        description: `Cashback de ${formatCurrency(data.cashback)} adicionado à sua conta`,
+        variant: "default"
       });
-      
-      // Invalidar consultas que possam depender do novo saldo
-      queryClient.invalidateQueries({ queryKey: ["/api/client/wallet"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/client/transactions"] });
-      
-      // Resetar estado
-      setPaymentData(null);
-      setScanning(true);
-      
-      // Redirecionar para a página de transações após alguns segundos
-      setTimeout(() => {
-        navigate("/client/transactions");
-      }, 2000);
+      setScannedData(null);
+      setIsScanning(false);
     },
-    onError: (error: any) => {
+    onError: () => {
       toast({
-        title: "Erro ao processar pagamento",
-        description: error.message || "Não foi possível processar o pagamento. Tente novamente.",
-        variant: "destructive",
+        title: "Erro no pagamento",
+        description: "Não foi possível processar o pagamento",
+        variant: "destructive"
       });
-    },
+    }
   });
 
-  // Verificar QR Code
-  const verifyQrCode = async (code: string) => {
-    if (!code) return;
-    
-    try {
-      setLoading(true);
-      const response = await apiRequest("GET", `/api/client/verify-qr/${code}`);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "QR Code inválido ou expirado");
-      }
-      
-      const data = await response.json();
-      setPaymentData(data);
-      setScanning(false);
-      
-      toast({
-        title: "QR Code válido",
-        description: `Código de ${data.merchant_name} - ${formatCurrency(data.amount)}`,
-      });
-      
-    } catch (error: any) {
-      toast({
-        title: "Erro ao ler QR Code",
-        description: error.message || "QR Code inválido ou expirado. Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const startScanner = () => {
+    setIsScanning(true);
+    setError("");
+    setScannedData(null);
 
-  // Lidar com o QR Code escaneado
-  const handleScan = (data: string | null) => {
-    if (data) {
-      console.log("QR Code detectado:", data);
-      
-      try {
-        // Verificar se é um JSON válido
-        const parsedData = JSON.parse(data);
-        
-        // Verificar se tem o formato esperado (formato gerado pelo lojista)
-        if (parsedData.id && parsedData.type === "payment_request") {
-          console.log("Verificando QR code com ID:", parsedData.id);
-          verifyQrCode(parsedData.id);
-        } else {
-          // Formato alternativo (tentar outros campos)
-          if (parsedData.code) {
-            console.log("Verificando QR code com código alternativo:", parsedData.code);
-            verifyQrCode(parsedData.code);
+    const scanner = new Html5QrcodeScanner(
+      "qr-reader",
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0,
+      },
+      false
+    );
+
+    scanner.render(
+      (decodedText) => {
+        try {
+          const paymentData: PaymentData = JSON.parse(decodedText);
+          
+          if (paymentData.type === 'payment' && paymentData.merchant_id) {
+            setScannedData(paymentData);
+            scanner.clear();
+            setIsScanning(false);
           } else {
-            toast({
-              title: "QR Code inválido",
-              description: "Este QR Code não contém um código de pagamento válido.",
-              variant: "destructive",
-            });
+            setError("QR Code inválido. Use apenas QR Codes de pagamento do Vale Cashback.");
           }
+        } catch (err) {
+          setError("QR Code não reconhecido. Verifique se é um QR Code válido.");
         }
-      } catch (error) {
-        console.log("Não é um JSON válido, tentando como código direto:", data);
-        // Se não for um JSON válido, tentar usar como código direto
-        verifyQrCode(data);
+      },
+      () => {
+        // Error callback - continue scanning
       }
-    }
+    );
+
+    scannerRef.current = scanner;
   };
 
-  // Lidar com erro de escaneamento
-  const handleError = (error: Error) => {
-    console.error("Erro ao escanear:", error);
-    toast({
-      title: "Erro ao escanear QR Code",
-      description: "Houve um problema ao acessar a câmera. Tente usar o código manual.",
-      variant: "destructive",
-    });
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear();
+    }
+    setIsScanning(false);
+    setError("");
   };
 
-  // Processar o pagamento
-  const processPayment = (paymentType: string) => {
-    if (!paymentData || !paymentData.qr_code_id) {
-      toast({
-        title: "Dados de pagamento inválidos",
-        description: "Não foi possível processar o pagamento. Tente escanear novamente.",
-        variant: "destructive",
-      });
-      return;
+  const confirmPayment = () => {
+    if (scannedData) {
+      processPaymentMutation.mutate(scannedData);
     }
-    
-    // Mostrar loading antes de iniciar o processamento
-    setLoading(true);
-    
-    // Converter valores para números explicitamente e garantir precisão
-    const amount = parseFloat(paymentData.amount?.toString() || "0");
-    
-    // Garantir que o valor é um número válido
-    if (isNaN(amount) || amount <= 0) {
-      toast({
-        title: "Valor inválido",
-        description: "O valor do pagamento é inválido ou não foi informado. Tente escanear novamente.",
-        variant: "destructive",
-      });
-      setLoading(false);
-      return;
-    }
-    
-    // Arredondar para 2 casas decimais para garantir consistência
-    const roundedAmount = Math.round(amount * 100) / 100;
-    
-    console.log("Enviando dados para processamento:", {
-      qr_code_id: paymentData.qr_code_id,
-      payment_type: paymentType,
-      valorOriginal: amount,
-      valorArredondado: roundedAmount
-    });
-    
-    // Enviar os dados necessários para processamento
-    // Incluindo o tipo de pagamento e dados para o servidor identificar o QR code
-    processPaymentMutation.mutate({
-      qr_code_id: paymentData.qr_code_id,
-      payment_data: paymentData,
-      payment_type: paymentType
-    }, {
-      onError: (error: any) => {
-        console.error("Erro ao processar pagamento:", error);
-        setLoading(false);
-        
-        // Verificar se o erro é de saldo insuficiente
-        const errorMessage = error.message || "";
-        
-        if (errorMessage.includes("Saldo insuficiente")) {
-          toast({
-            title: "Saldo insuficiente",
-            description: "Você não tem saldo suficiente na carteira para realizar este pagamento.",
-            variant: "destructive",
-          });
-        } else if (errorMessage.includes("Bônus insuficiente")) {
-          toast({
-            title: "Bônus insuficiente",
-            description: "Você não tem bônus suficiente para realizar este pagamento.",
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Erro ao processar pagamento",
-            description: errorMessage || "Ocorreu um erro ao processar o pagamento. Tente novamente.",
-            variant: "destructive",
-          });
-        }
-      }
-    });
-  };
-
-  // Verificar código inserido manualmente
-  const checkManualCode = () => {
-    if (!manualCode.trim()) {
-      toast({
-        title: "Código vazio",
-        description: "Por favor, insira um código de pagamento válido.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    verifyQrCode(manualCode.trim());
-  };
-
-  // Cancelar o pagamento
-  const cancelPayment = () => {
-    setPaymentData(null);
-    setScanning(true);
-    setManualCode("");
   };
 
   useEffect(() => {
-    if (!user) {
-      navigate("/auth");
-    }
-  }, [user, navigate]);
-
-  // Função para reiniciar o scanner (usado em caso de erro)
-  const resetScanner = () => {
-    setScannerKey(Date.now());
-  };
-  
-  // Renderizar o scanner de QR Code ou o resultado
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="flex flex-col items-center justify-center p-6">
-          <Loader2 className="h-16 w-16 animate-spin text-primary" />
-          <p className="mt-4 text-lg">Carregando...</p>
-        </div>
-      );
-    }
-
-    if (scanning) {
-      return (
-        <div className="flex flex-col space-y-6">
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle>Escaneie o QR Code</CardTitle>
-              <CardDescription>
-                Aponte a câmera para o QR Code gerado pelo lojista
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="w-full aspect-square relative overflow-hidden rounded-md mb-4">
-                {/* Usar key para forçar recriação do componente quando houver erro */}
-                <QrScanner
-                  key={scannerKey}
-                  onScan={handleScan}
-                  onError={(err) => {
-                    handleError(err);
-                    // Em caso de erro grave, reiniciar o scanner após 1 segundo
-                    setTimeout(resetScanner, 1000);
-                  }}
-                  style={{ width: '100%', height: '100%' }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle>Ou insira o código manualmente</CardTitle>
-              <CardDescription>
-                Se tiver problemas com a câmera, insira o código fornecido pelo lojista
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid w-full items-center gap-4">
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="code">Código de pagamento</Label>
-                  <Input
-                    id="code"
-                    placeholder="Digite o código aqui"
-                    value={manualCode}
-                    onChange={(e) => setManualCode(e.target.value)}
-                  />
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={checkManualCode} className="w-full">
-                Verificar código
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-      );
-    }
-
-    // Mostrar informações do pagamento
-    return (
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>Confirmar pagamento</CardTitle>
-          <CardDescription>
-            Detalhes do pagamento a ser realizado
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {/* Cabeçalho com informações do lojista */}
-            <div className="bg-muted/30 rounded-lg p-3 mb-2">
-              <div className="flex flex-col sm:flex-row sm:justify-between">
-                <span className="text-sm font-medium text-muted-foreground mb-1 sm:mb-0">Lojista:</span>
-                <span className="font-semibold text-primary">{paymentData?.merchant_name || "Lojista"}</span>
-              </div>
-            </div>
-            
-            {/* Valor destacado */}
-            <div className="bg-primary/10 rounded-lg p-4 text-center mb-3">
-              <div className="flex flex-col gap-1">
-                <span className="text-sm font-medium text-muted-foreground">Valor a pagar:</span>
-                <span className="font-bold text-2xl text-primary">{formatCurrency(paymentData?.amount || 0)}</span>
-              </div>
-            </div>
-            
-            {/* Descrição */}
-            <div className="bg-muted/30 rounded-lg p-3 mb-2">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-muted-foreground mb-1">Descrição:</span>
-                <span className="text-sm break-words">{paymentData?.description || "Pagamento via Vale Cashback"}</span>
-              </div>
-            </div>
-            
-            {/* Opções de pagamento */}
-            <div className="border-t pt-4 mt-4">
-              <p className="text-center font-medium mb-3">
-                Escolha a forma de pagamento:
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button 
-                  className="w-full py-3" 
-                  variant="default"
-                  onClick={() => processPayment("wallet")}
-                  disabled={processPaymentMutation.isPending}
-                >
-                  {processPaymentMutation.isPending ? (
-                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  ) : (
-                    <Wallet className="h-5 w-5 mr-2" />
-                  )}
-                  Pagar com Saldo
-                </Button>
-                <Button 
-                  className="w-full py-3" 
-                  variant="outline"
-                  onClick={() => processPayment("bonus")}
-                  disabled={processPaymentMutation.isPending}
-                >
-                  {processPaymentMutation.isPending ? (
-                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  ) : (
-                    <Check className="h-5 w-5 mr-2" />
-                  )}
-                  Pagar com Bônus
-                </Button>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-        <CardFooter className="flex justify-between">
-          <Button 
-            variant="destructive" 
-            onClick={cancelPayment}
-            disabled={processPaymentMutation.isPending}
-          >
-            <X className="h-4 w-4 mr-2" />
-            Cancelar
-          </Button>
-        </CardFooter>
-      </Card>
-    );
-  };
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear();
+      }
+    };
+  }, []);
 
   return (
-    <div className="container mx-auto p-4 max-w-md">
-      <h1 className="text-2xl font-bold mb-6">Pagar com QR Code</h1>
-      {renderContent()}
-    </div>
+    <DashboardLayout title="Escanear QR Code" type="client">
+      <div className="max-w-2xl mx-auto space-y-6">
+        {/* Scanner Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <QrCode className="h-5 w-5" />
+              Scanner de QR Code
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!isScanning && !scannedData && (
+              <div className="text-center py-12">
+                <QrCode className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-medium mb-2">Pronto para escanear</h3>
+                <p className="text-muted-foreground mb-6">
+                  Escaneie o QR Code do lojista para realizar o pagamento e ganhar cashback
+                </p>
+                <Button onClick={startScanner} size="lg">
+                  <Camera className="mr-2 h-5 w-5" />
+                  Iniciar Scanner
+                </Button>
+              </div>
+            )}
+
+            {isScanning && (
+              <div className="space-y-4">
+                <div id="qr-reader" className="border rounded-lg overflow-hidden"></div>
+                
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex justify-center">
+                  <Button variant="outline" onClick={stopScanner}>
+                    Parar Scanner
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {scannedData && (
+              <div className="space-y-4">
+                <Alert>
+                  <CheckCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    QR Code escaneado com sucesso!
+                  </AlertDescription>
+                </Alert>
+
+                <div className="p-4 border rounded-lg bg-muted/50">
+                  <h3 className="font-medium mb-3">Detalhes do Pagamento</h3>
+                  
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Loja:</span>
+                      <span className="font-medium">{scannedData.merchant_name}</span>
+                    </div>
+                    
+                    {scannedData.amount && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Valor:</span>
+                        <span className="font-medium text-lg">
+                          {formatCurrency(scannedData.amount)}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {scannedData.description && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Descrição:</span>
+                        <span className="font-medium">{scannedData.description}</span>
+                      </div>
+                    )}
+
+                    {scannedData.amount && (
+                      <div className="flex justify-between pt-2 border-t">
+                        <span className="text-muted-foreground">Cashback estimado:</span>
+                        <span className="font-medium text-green-600">
+                          {formatCurrency(scannedData.amount * 0.05)} (5%)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button 
+                    onClick={confirmPayment}
+                    disabled={processPaymentMutation.isPending}
+                    className="flex-1"
+                  >
+                    {processPaymentMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processando...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Confirmar Pagamento
+                      </>
+                    )}
+                  </Button>
+                  
+                  <Button variant="outline" onClick={() => setScannedData(null)}>
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Instructions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Como Usar</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                  <span className="text-sm font-bold text-primary">1</span>
+                </div>
+                <div>
+                  <h4 className="font-medium">Peça o QR Code</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Solicite ao lojista para gerar o QR Code com o valor da sua compra
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                  <span className="text-sm font-bold text-primary">2</span>
+                </div>
+                <div>
+                  <h4 className="font-medium">Escaneie</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Use o scanner para ler o QR Code apresentado pelo lojista
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                  <span className="text-sm font-bold text-primary">3</span>
+                </div>
+                <div>
+                  <h4 className="font-medium">Confirme</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Verifique os dados e confirme o pagamento para ganhar cashback
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Benefits */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Benefícios</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                <h4 className="font-medium">5% de Cashback</h4>
+                <p className="text-sm text-muted-foreground">
+                  Ganhe 5% de volta em todas as compras
+                </p>
+              </div>
+              
+              <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <QrCode className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+                <h4 className="font-medium">Pagamento Rápido</h4>
+                <p className="text-sm text-muted-foreground">
+                  Processo simples e seguro
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </DashboardLayout>
   );
 }
