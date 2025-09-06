@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="primaryGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0080FF" />
+      <stop offset="100%" stop-color="#0057A8" />
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF9D2F" />
+      <stop offset="100%" stop-color="#FF7700" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#00000033" />
+    </filter>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#primaryGradient)" filter="url(#shadow)" />
+  
+  <!-- Cashback Circular Arrow -->
+  <path d="M256 396C331.186 396 392 335.186 392 260C392 184.814 331.186 124 256 124C180.814 124 120 184.814 120 260" 
+        stroke="white" stroke-width="24" stroke-linecap="round" fill="none" />
+  
+  <!-- Cashback Arrow Head -->
+  <path d="M140 290L120 260L90 280" stroke="white" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  
+  <!-- Inner Circle for Cashback Symbol -->
+  <circle cx="256" cy="260" r="90" fill="url(#accentGradient)" />
+  
+  <!-- $ Symbol -->
+  <path d="M256 210V310M236 225H266C279.255 225 290 235.745 290 249C290 262.255 279.255 273 266 273H246C232.745 273 222 283.745 222 297C222 310.255 232.745 321 246 321H276" 
+        stroke="white" stroke-width="20" stroke-linecap="round" />
+        
+  <!-- Referral Connection Points -->
+  <circle cx="210" cy="180" r="18" fill="white" />
+  <circle cx="302" cy="180" r="18" fill="white" />
+  <circle cx="350" cy="260" r="18" fill="white" />
+  <circle cx="302" cy="340" r="18" fill="white" />
+  <circle cx="210" cy="340" r="18" fill="white" />
+  
+  <!-- Connector Lines -->
+  <line x1="226" y1="184" x2="286" y2="184" stroke="white" stroke-width="8" />
+  <line x1="314" y1="196" x2="340" y2="244" stroke="white" stroke-width="8" />
+  <line x1="314" y1="324" x2="340" y2="276" stroke="white" stroke-width="8" />
+  <line x1="226" y1="336" x2="286" y2="336" stroke="white" stroke-width="8" />
+</svg>

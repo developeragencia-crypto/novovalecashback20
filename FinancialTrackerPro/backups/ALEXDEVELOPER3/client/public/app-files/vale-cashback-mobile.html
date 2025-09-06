@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vale Cashback - Aplicativo Mobile</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+        }
+        
+        .app-container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0;
+            background-color: #0066B3;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .app-header {
+            background-color: #0066B3;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .app-logo {
+            height: 80px;
+            width: auto;
+            margin-bottom: 10px;
+        }
+        
+        .app-content {
+            flex: 1;
+            background-color: white;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+        
+        .menu-item {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            text-decoration: none;
+            color: #333;
+        }
+        
+        .menu-item:active {
+            background-color: #f0f0f0;
+        }
+        
+        .menu-icon {
+            margin-right: 1rem;
+            width: 24px;
+            height: 24px;
+            color: #0066B3;
+        }
+        
+        .app-footer {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #666;
+            border-top: 1px solid #eee;
+        }
+        
+        .install-banner {
+            background-color: #e9f5ff;
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 1px solid #c9e5ff;
+        }
+        
+        .install-button {
+            background-color: #FF7700;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-top: 0.5rem;
+            cursor: pointer;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .card-header {
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .balance-card {
+            background-color: #0066B3;
+            color: white;
+        }
+        
+        .balance-amount {
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 0.5rem 0;
+        }
+        
+        .transactions-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .transaction-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.8rem 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .transaction-info {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .transaction-store {
+            font-weight: bold;
+        }
+        
+        .transaction-date {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        .transaction-amount {
+            font-weight: bold;
+        }
+        
+        .transaction-amount.positive {
+            color: #28a745;
+        }
+        
+        .transaction-amount.negative {
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="app-header">
+            <img src="/valecashback-logo.svg" alt="Vale Cashback Logo" class="app-logo">
+            <h1>Vale Cashback</h1>
+        </div>
+        
+        <div class="install-banner">
+            <p>Para melhor experiência, instale este aplicativo.</p>
+            <a href="/downloads" class="install-button">Baixar Aplicativo Real</a>
+        </div>
+        
+        <div class="app-content">
+            <div class="card balance-card">
+                <div class="card-header">Seu Saldo</div>
+                <div class="balance-amount">$350,75</div>
+                <div>Última atualização: hoje às 10:45</div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">Últimas Transações</div>
+                <ul class="transactions-list">
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Supermercado Central</span>
+                            <span class="transaction-date">Hoje, 09:30</span>
+                        </div>
+                        <span class="transaction-amount positive">+$12,50</span>
+                    </li>
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Farmácia Bem Estar</span>
+                            <span class="transaction-date">Ontem, 16:45</span>
+                        </div>
+                        <span class="transaction-amount positive">+$5,20</span>
+                    </li>
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Transferência para João</span>
+                            <span class="transaction-date">23/04/2023, 14:12</span>
+                        </div>
+                        <span class="transaction-amount negative">-$45,00</span>
+                    </li>
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Livraria Cultura</span>
+                            <span class="transaction-date">20/04/2023, 11:30</span>
+                        </div>
+                        <span class="transaction-amount positive">+$8,75</span>
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">Minhas Indicações</div>
+                <p>Você já indicou 3 amigos e ganhou $15,00 em bônus!</p>
+                <p>Código de indicação: <strong>ABC123</strong></p>
+            </div>
+        </div>
+        
+        <div class="app-footer">
+            <div>Vale Cashback &copy; 2023</div>
+            <div>Versão Demonstrativa - Baixe o app real</div>
+        </div>
+    </div>
+</body>
+</html>

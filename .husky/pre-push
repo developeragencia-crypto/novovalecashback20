@@ -1,0 +1,7 @@
+#!/bin/sh
+. "$(dirname "$0")/_/ husky.sh"
+
+# Executa todos os testes (unitários e integração) antes de cada push.
+# Se um dos comandos falhar (ex: testes falham), o push é abortado.
+npm run test:unit
+npm run test:integration 

@@ -1,0 +1,225 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_VERSION: '20.x'
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+jobs:
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vale_cashback_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar linting
+        run: npm run lint
+
+      - name: Executar testes unitários
+        run: npm run test:unit
+
+      - name: Executar testes de integração
+        run: npm run test:integration
+
+      - name: Gerar relatório de cobertura
+        run: npm run test:coverage
+
+      - name: Upload relatório de cobertura
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  security:
+    name: Análise de Segurança
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar auditoria de segurança
+        run: npm audit
+
+      - name: Executar análise de dependências
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Executar análise de código
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript
+
+      - name: Executar análise de código
+        uses: github/codeql-action/analyze@v2
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, security]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Build do servidor
+        run: npm run build:server
+
+      - name: Build do cliente
+        run: npm run build:client
+
+      - name: Upload artefatos
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: |
+            server/dist
+            client/dist
+
+  deploy-staging:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download artefatos
+        uses: actions/download-artifact@v3
+        with:
+          name: dist
+
+      - name: Configurar SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy para staging
+        run: |
+          rsync -avz --delete \
+            server/dist/ \
+            ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/var/www/vale-cashback-staging/server/
+          rsync -avz --delete \
+            client/dist/ \
+            ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/var/www/vale-cashback-staging/client/
+
+      - name: Notificar deploy
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: deployments
+          SLACK_COLOR: good
+          SLACK_TITLE: Deploy Staging
+          SLACK_MESSAGE: 'Deploy para staging concluído com sucesso!'
+
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download artefatos
+        uses: actions/download-artifact@v3
+        with:
+          name: dist
+
+      - name: Configurar SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy para produção
+        run: |
+          rsync -avz --delete \
+            server/dist/ \
+            ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/var/www/vale-cashback/server/
+          rsync -avz --delete \
+            client/dist/ \
+            ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/var/www/vale-cashback/client/
+
+      - name: Notificar deploy
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: deployments
+          SLACK_COLOR: good
+          SLACK_TITLE: Deploy Production
+          SLACK_MESSAGE: 'Deploy para produção concluído com sucesso!'
+
+  monitor:
+    name: Monitoramento
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+
+    steps:
+      - name: Verificar saúde da aplicação
+        run: |
+          curl -f https://staging.valecashback.com/health || exit 1
+          curl -f https://valecashback.com/health || exit 1
+
+      - name: Verificar métricas
+        run: |
+          curl -f https://staging.valecashback.com/metrics || exit 1
+          curl -f https://valecashback.com/metrics || exit 1
+
+      - name: Notificar status
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: monitoring
+          SLACK_COLOR: ${{ job.status == 'success' && 'good' || 'danger' }}
+          SLACK_TITLE: Status do Monitoramento
+          SLACK_MESSAGE: 'Verificação de saúde e métricas ${{ job.status == 'success' && 'concluída com sucesso' || 'falhou' }}' 

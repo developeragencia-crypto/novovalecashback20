@@ -1,0 +1,188 @@
+module.exports = {
+  root: true,
+  parser: '@typescript-eslint/parser',
+  parserOptions: {
+    project: './tsconfig.json',
+    ecmaVersion: 2020,
+    sourceType: 'module',
+    ecmaFeatures: {
+      jsx: true,
+    },
+  },
+  plugins: [
+    '@typescript-eslint',
+    'react',
+    'react-hooks',
+    'jsx-a11y',
+    'import',
+    'prettier',
+    'sonarjs',
+    'security',
+  ],
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    'plugin:react/recommended',
+    'plugin:react-hooks/recommended',
+    'plugin:jsx-a11y/recommended',
+    'plugin:import/errors',
+    'plugin:import/warnings',
+    'plugin:import/typescript',
+    'plugin:prettier/recommended',
+    'plugin:sonarjs/recommended',
+    'plugin:security/recommended',
+  ],
+  env: {
+    browser: true,
+    node: true,
+    es6: true,
+    jest: true,
+  },
+  settings: {
+    react: {
+      version: 'detect',
+    },
+    'import/resolver': {
+      typescript: {},
+      node: {
+        extensions: ['.js', '.jsx', '.ts', '.tsx'],
+      },
+    },
+  },
+  rules: {
+    // Regras gerais
+    'no-console': ['warn', { allow: ['warn', 'error'] }],
+    'no-debugger': 'warn',
+    'no-duplicate-imports': 'error',
+    'no-unused-vars': 'off',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    'no-use-before-define': 'off',
+    '@typescript-eslint/no-use-before-define': ['error'],
+    'no-shadow': 'off',
+    '@typescript-eslint/no-shadow': ['error'],
+    'no-explicit-any': 'warn',
+    '@typescript-eslint/explicit-module-boundary-types': 'off',
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-non-null-assertion': 'warn',
+    '@typescript-eslint/ban-ts-comment': 'warn',
+
+    // React
+    'react/prop-types': 'off',
+    'react/react-in-jsx-scope': 'off',
+    'react/display-name': 'off',
+    'react/jsx-curly-brace-presence': ['error', { props: 'never', children: 'never' }],
+    'react/jsx-fragments': ['error', 'syntax'],
+    'react/jsx-no-useless-fragment': 'error',
+    'react/jsx-pascal-case': 'error',
+    'react/jsx-sort-props': [
+      'error',
+      {
+        callbacksLast: true,
+        shorthandFirst: true,
+        ignoreCase: true,
+        reservedFirst: true,
+      },
+    ],
+    'react-hooks/rules-of-hooks': 'error',
+    'react-hooks/exhaustive-deps': 'warn',
+
+    // Import
+    'import/order': [
+      'error',
+      {
+        groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],
+        'newlines-between': 'always',
+        alphabetize: { order: 'asc', caseInsensitive: true },
+      },
+    ],
+    'import/no-duplicates': 'error',
+    'import/no-unresolved': 'error',
+    'import/named': 'error',
+    'import/default': 'error',
+    'import/namespace': 'error',
+    'import/no-cycle': 'error',
+    'import/no-self-import': 'error',
+    'import/no-useless-path-segments': 'error',
+    'import/no-relative-parent-imports': 'error',
+    'import/no-relative-packages': 'error',
+    'import/no-absolute-path': 'error',
+    'import/no-dynamic-require': 'error',
+    'import/no-webpack-loader-syntax': 'error',
+    'import/no-unassigned-import': 'error',
+    'import/no-named-as-default': 'error',
+    'import/no-named-as-default-member': 'error',
+    'import/no-deprecated': 'error',
+    'import/no-extraneous-dependencies': [
+      'error',
+      {
+        devDependencies: [
+          '**/*.test.ts',
+          '**/*.test.tsx',
+          '**/*.spec.ts',
+          '**/*.spec.tsx',
+          '**/__tests__/**',
+          '**/__mocks__/**',
+          '**/jest.config.js',
+          '**/vitest.config.ts',
+          '**/setupTests.ts',
+        ],
+      },
+    ],
+
+    // SonarJS
+    'sonarjs/cognitive-complexity': ['error', 15],
+    'sonarjs/no-identical-expressions': 'error',
+    'sonarjs/no-identical-functions': 'error',
+    'sonarjs/no-redundant-boolean': 'error',
+    'sonarjs/no-redundant-jump': 'error',
+    'sonarjs/no-unused-collection': 'error',
+    'sonarjs/no-useless-catch': 'error',
+    'sonarjs/prefer-immediate-return': 'error',
+    'sonarjs/prefer-object-literal': 'error',
+    'sonarjs/prefer-single-boolean-return': 'error',
+    'sonarjs/prefer-while': 'error',
+
+    // Security
+    'security/detect-object-injection': 'warn',
+    'security/detect-non-literal-regexp': 'warn',
+    'security/detect-unsafe-regex': 'warn',
+    'security/detect-buffer-noassert': 'warn',
+    'security/detect-child-process': 'warn',
+    'security/detect-disable-mustache-escape': 'warn',
+    'security/detect-eval-with-expression': 'warn',
+    'security/detect-no-csrf-before-method-override': 'warn',
+    'security/detect-non-literal-require': 'warn',
+    'security/detect-possible-timing-attacks': 'warn',
+    'security/detect-pseudoRandomBytes': 'warn',
+
+    // Prettier
+    'prettier/prettier': [
+      'error',
+      {
+        printWidth: 100,
+        tabWidth: 2,
+        useTabs: false,
+        semi: true,
+        singleQuote: true,
+        trailingComma: 'all',
+        bracketSpacing: true,
+        jsxBracketSameLine: false,
+        arrowParens: 'avoid',
+        endOfLine: 'lf',
+      },
+    ],
+  },
+  overrides: [
+    {
+      files: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'],
+      env: {
+        jest: true,
+      },
+      rules: {
+        '@typescript-eslint/no-explicit-any': 'off',
+        'sonarjs/no-identical-functions': 'off',
+        'security/detect-non-literal-regexp': 'off',
+      },
+    },
+  ],
+}; 

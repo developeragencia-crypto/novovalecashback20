@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vale Cashback - Aplicativo Mobile com Banco de Dados</title>
+    <!-- Database integration enabled -->
+    <meta name="description" content="Versão móvel do Vale Cashback com banco de dados integrado para acesso offline às transações, histórico de cashback e configurações do usuário.">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+        }
+        
+        .app-container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0;
+            background-color: #0066B3;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .app-header {
+            background-color: #0066B3;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .app-logo {
+            height: 80px;
+            width: auto;
+            margin-bottom: 10px;
+        }
+        
+        .app-content {
+            flex: 1;
+            background-color: white;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+        
+        .menu-item {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            text-decoration: none;
+            color: #333;
+        }
+        
+        .menu-item:active {
+            background-color: #f0f0f0;
+        }
+        
+        .menu-icon {
+            margin-right: 1rem;
+            width: 24px;
+            height: 24px;
+            color: #0066B3;
+        }
+        
+        .app-footer {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #666;
+            border-top: 1px solid #eee;
+        }
+        
+        .install-banner {
+            background-color: #e9f5ff;
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 1px solid #c9e5ff;
+        }
+        
+        .install-button {
+            background-color: #FF7700;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-top: 0.5rem;
+            cursor: pointer;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .card-header {
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .balance-card {
+            background-color: #0066B3;
+            color: white;
+        }
+        
+        .balance-amount {
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 0.5rem 0;
+        }
+        
+        .transactions-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .transaction-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.8rem 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .transaction-info {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .transaction-store {
+            font-weight: bold;
+        }
+        
+        .transaction-date {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        .transaction-amount {
+            font-weight: bold;
+        }
+        
+        .transaction-amount.positive {
+            color: #28a745;
+        }
+        
+        .transaction-amount.negative {
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="app-header">
+            <img src="/valecashback-logo.svg" alt="Vale Cashback Logo" class="app-logo">
+            <h1>Vale Cashback</h1>
+        </div>
+        
+        <div class="install-banner">
+            <p>Para melhor experiência, instale este aplicativo.</p>
+            <a href="/downloads" class="install-button">Baixar Aplicativo Real</a>
+        </div>
+        
+        <div class="app-content">
+            <div class="card balance-card">
+                <div class="card-header">Seu Saldo</div>
+                <div class="balance-amount">$350,75</div>
+                <div>Última atualização: hoje às 10:45</div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">Últimas Transações</div>
+                <ul class="transactions-list">
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Supermercado Central</span>
+                            <span class="transaction-date">Hoje, 09:30</span>
+                        </div>
+                        <span class="transaction-amount positive">+$12,50</span>
+                    </li>
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Farmácia Bem Estar</span>
+                            <span class="transaction-date">Ontem, 16:45</span>
+                        </div>
+                        <span class="transaction-amount positive">+$5,20</span>
+                    </li>
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Transferência para João</span>
+                            <span class="transaction-date">23/04/2023, 14:12</span>
+                        </div>
+                        <span class="transaction-amount negative">-$45,00</span>
+                    </li>
+                    <li class="transaction-item">
+                        <div class="transaction-info">
+                            <span class="transaction-store">Livraria Cultura</span>
+                            <span class="transaction-date">20/04/2023, 11:30</span>
+                        </div>
+                        <span class="transaction-amount positive">+$8,75</span>
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">Minhas Indicações</div>
+                <p>Você já indicou 3 amigos e ganhou $15,00 em bônus!</p>
+                <p>Código de indicação: <strong>ABC123</strong></p>
+            </div>
+        </div>
+        
+        <div class="app-footer">
+            <div>Vale Cashback &copy; 2025</div>
+            <div>Versão Completa com Banco de Dados Integrado</div>
+        </div>
+    </div>
+
+    <!-- Scripts de integração com banco de dados -->
+    <script>
+        // Inicialização do banco de dados offline
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Inicializando banco de dados...');
+            initDatabase();
+        });
+
+        // Função para inicializar o banco de dados
+        function initDatabase() {
+            // Verifica se o IndexedDB é suportado pelo navegador
+            if (!window.indexedDB) {
+                console.error("Seu navegador não suporta uma versão estável do IndexedDB.");
+                return;
+            }
+
+            // Abre (ou cria) o banco de dados
+            const request = window.indexedDB.open("ValeCashbackDB", 1);
+            
+            // Manipulador de erro
+            request.onerror = function(event) {
+                console.error("Erro ao abrir banco de dados:", event);
+            };
+            
+            // Manipulador de sucesso
+            request.onsuccess = function(event) {
+                const db = event.target.result;
+                console.log("Banco de dados inicializado com sucesso!");
+                
+                // Popula o banco de dados com dados iniciais se necessário
+                populateInitialData(db);
+                
+                // Carrega os dados do banco para a interface
+                loadDataFromDatabase(db);
+            };
+            
+            // Configuração do banco de dados (executado apenas na criação ou atualização)
+            request.onupgradeneeded = function(event) {
+                const db = event.target.result;
+                
+                // Cria tabelas necessárias
+                if (!db.objectStoreNames.contains('transactions')) {
+                    const transactionStore = db.createObjectStore('transactions', { keyPath: 'id' });
+                    transactionStore.createIndex('by_date', 'date', { unique: false });
+                }
+                
+                if (!db.objectStoreNames.contains('user_data')) {
+                    db.createObjectStore('user_data', { keyPath: 'id' });
+                }
+                
+                if (!db.objectStoreNames.contains('cashback_history')) {
+                    const cashbackStore = db.createObjectStore('cashback_history', { keyPath: 'id' });
+                    cashbackStore.createIndex('by_date', 'date', { unique: false });
+                }
+                
+                console.log("Estrutura do banco de dados configurada!");
+            };
+        }
+
+        // Função para popular o banco com dados iniciais
+        function populateInitialData(db) {
+            const userData = {
+                id: 1,
+                name: "Cliente Teste",
+                email: "cliente@valecashback.com",
+                balance: 350.75,
+                referral_code: "ABC123",
+                referral_count: 3,
+                lastUpdated: new Date().toISOString()
+            };
+            
+            const transaction = db.transaction(['user_data'], 'readwrite');
+            const userStore = transaction.objectStore('user_data');
+            
+            // Verifica se já existem dados de usuário
+            const getRequest = userStore.get(1);
+            
+            getRequest.onsuccess = function(event) {
+                if (!event.target.result) {
+                    // Adiciona dados do usuário apenas se não existirem
+                    userStore.add(userData);
+                    console.log("Dados do usuário inicializados!");
+                }
+            };
+            
+            transaction.oncomplete = function() {
+                console.log("Inicialização de dados concluída!");
+            };
+        }
+
+        // Função para carregar dados do banco para a interface
+        function loadDataFromDatabase(db) {
+            // Carrega dados do usuário
+            const transaction = db.transaction(['user_data', 'transactions'], 'readonly');
+            const userStore = transaction.objectStore('user_data');
+            const transactionStore = transaction.objectStore('transactions');
+            
+            // Obtém dados do usuário
+            const userRequest = userStore.get(1);
+            userRequest.onsuccess = function(event) {
+                const userData = event.target.result;
+                if (userData) {
+                    // Atualiza interface com dados do usuário
+                    document.querySelector('.balance-amount').textContent = `$${userData.balance.toFixed(2)}`;
+                }
+            };
+            
+            // Carrega transações recentes
+            const transactionIndex = transactionStore.index('by_date');
+            const transactions = [];
+            
+            transactionIndex.openCursor(null, 'prev').onsuccess = function(event) {
+                const cursor = event.target.result;
+                if (cursor && transactions.length < 5) {
+                    transactions.push(cursor.value);
+                    cursor.continue();
+                } else {
+                    // Se não houver transações ou todas já foram carregadas
+                    if (transactions.length > 0) {
+                        // Atualizar a lista de transações na interface
+                        console.log("Transações carregadas:", transactions);
+                    }
+                }
+            };
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Vale Cashback com Banco de Dados</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .header {
+            background-color: #0066B3;
+            color: white;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .button {
+            display: inline-block;
+            background-color: #FF7700;
+            color: white;
+            text-decoration: none;
+            padding: 1rem 2rem;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-top: 1rem;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background-color: #e56b00;
+        }
+        .steps {
+            counter-reset: step-counter;
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .steps li {
+            position: relative;
+            margin-bottom: 1.5rem;
+            padding-left: 3rem;
+        }
+        .steps li::before {
+            content: counter(step-counter);
+            counter-increment: step-counter;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 2rem;
+            height: 2rem;
+            background-color: #0066B3;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .code {
+            background-color: #f5f5f5;
+            padding: 1rem;
+            border-radius: 4px;
+            font-family: monospace;
+            margin: 1rem 0;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Vale Cashback - Download Completo</h1>
+        <p>Aplicativo completo com banco de dados integrado</p>
+    </div>
+    
+    <div class="container">
+        <div class="card">
+            <h2>Pacote Completo para Deploy no Netlify</h2>
+            <p>Este pacote contém todos os arquivos necessários para implantar o Vale Cashback no Netlify, incluindo o banco de dados completo integrado.</p>
+            
+            <h3>O que está incluído:</h3>
+            <ul>
+                <li>Frontend completo em React e TypeScript</li>
+                <li>Backend em Node.js com Express</li>
+                <li>Banco de dados integrado (funciona com PostgreSQL ou IndexedDB)</li>
+                <li>Funcionalidades PWA para instalação em dispositivos móveis</li>
+                <li>Configuração pronta para Netlify com plugin de funções</li>
+                <li>Configuração corrigida para build no Netlify</li>
+            </ul>
+            
+            <a href="vale-cashback-netlify-package.tar.gz" class="button" download>Baixar Pacote Completo (1.7 MB)</a>
+        </div>
+        
+        <div class="card">
+            <h2>Instruções de Implantação</h2>
+            
+            <ol class="steps">
+                <li>
+                    <h3>Extraia o arquivo baixado</h3>
+                    <p>Use um programa como 7-Zip, WinRAR ou o comando tar no terminal:</p>
+                    <div class="code">tar -xzvf vale-cashback-netlify-package.tar.gz</div>
+                </li>
+                
+                <li>
+                    <h3>Crie um repositório no GitHub</h3>
+                    <p>Você precisará de um repositório para hospedar o código antes de implantá-lo no Netlify.</p>
+                </li>
+                
+                <li>
+                    <h3>Envie os arquivos para o GitHub</h3>
+                    <p>Na pasta onde você extraiu os arquivos, execute:</p>
+                    <div class="code">
+                        git init<br>
+                        git add .<br>
+                        git commit -m "Primeiro commit"<br>
+                        git remote add origin https://github.com/seu-usuario/seu-repositorio.git<br>
+                        git push -u origin main
+                    </div>
+                </li>
+                
+                <li>
+                    <h3>Crie uma conta no Netlify</h3>
+                    <p>Se ainda não tiver uma conta, crie em <a href="https://netlify.com" target="_blank">netlify.com</a>.</p>
+                </li>
+                
+                <li>
+                    <h3>Crie um novo site no Netlify</h3>
+                    <p>Clique em "New site from Git" e selecione o GitHub como provedor.</p>
+                </li>
+                
+                <li>
+                    <h3>Selecione o repositório e configure</h3>
+                    <p>As configurações de build já estão definidas no arquivo netlify.toml.</p>
+                </li>
+                
+                <li>
+                    <h3>Configure as variáveis de ambiente (opcional)</h3>
+                    <p>Se desejar usar um banco de dados PostgreSQL externo, configure a variável DATABASE_URL.</p>
+                </li>
+                
+                <li>
+                    <h3>Implante o site</h3>
+                    <p>Clique em "Deploy site" e aguarde o processo de build e deploy ser concluído.</p>
+                </li>
+            </ol>
+        </div>
+        
+        <div class="card">
+            <h2>Credenciais de Teste</h2>
+            <p>Use estas credenciais para testar o aplicativo após a implantação:</p>
+            
+            <h3>Administrador</h3>
+            <p>Email: admin@valecashback.com<br>Senha: senha123</p>
+            
+            <h3>Cliente</h3>
+            <p>Email: cliente@valecashback.com<br>Senha: senha123</p>
+            
+            <h3>Lojista</h3>
+            <p>Email: lojista@valecashback.com<br>Senha: senha123</p>
+        </div>
+        
+        <div class="card">
+            <h3>Notas Importantes</h3>
+            <ul>
+                <li>Este pacote inclui um banco de dados IndexedDB que funciona mesmo sem conexão à internet</li>
+                <li>O aplicativo pode ser instalado como PWA em dispositivos Android e iOS</li>
+                <li>Todas as transações são armazenadas localmente até que haja conexão com a internet</li>
+                <li>O código está otimizado para implantação no Netlify</li>
+            </ul>
+        </div>
+        
+        <div class="card">
+            <h2>Correções no Build do Netlify</h2>
+            <p>Este pacote inclui correções específicas para resolver problemas de build no Netlify:</p>
+            
+            <ul>
+                <li><strong>Plugin de funções Netlify</strong> - Adicionamos o plugin <code>@netlify/plugin-functions-install-core</code> para instalação automática de dependências das funções serverless</li>
+                <li><strong>Dependências serverless</strong> - Configuramos corretamente a dependência <code>serverless-http</code> necessária para a API</li>
+                <li><strong>Arquivo package.json para funções</strong> - Criamos um arquivo package.json específico para a função Netlify em <code>netlify/functions/</code></li>
+                <li><strong>Correções no netlify.toml</strong> - Atualizamos as configurações de build para suportar funções serverless</li>
+            </ul>
+            
+            <p>Estas correções garantem que o deploy no Netlify funcione sem problemas. Se você encontrar qualquer dificuldade, por favor verifique o log de build para diagnóstico.</p>
+        </div>
+    </div>
+</body>
+</html>

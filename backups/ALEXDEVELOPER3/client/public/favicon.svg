@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="primaryGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0080FF" />
+      <stop offset="100%" stop-color="#0057A8" />
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF9D2F" />
+      <stop offset="100%" stop-color="#FF7700" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="32" cy="32" r="30" fill="url(#primaryGradient)" />
+  
+  <!-- Inner Circle for Cashback Symbol -->
+  <circle cx="32" cy="32" r="16" fill="url(#accentGradient)" />
+  
+  <!-- $ Symbol -->
+  <path d="M32 26V38M29 28H34C35.657 28 37 29.343 37 31C37 32.657 35.657 34 34 34H30C28.343 34 27 35.343 27 37C27 38.657 28.343 40 30 40H35" 
+        stroke="white" stroke-width="2.5" stroke-linecap="round" />
+  
+  <!-- Cashback Circular Arrow -->
+  <path d="M32 52C43.046 52 52 43.046 52 32C52 20.954 43.046 12 32 12C20.954 12 12 20.954 12 32" 
+        stroke="white" stroke-width="4" stroke-linecap="round" fill="none" />
+  
+  <!-- Cashback Arrow Head -->
+  <path d="M15 37L12 32L7 35" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+</svg>
