@@ -1802,6 +1802,255 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === SISTEMA DE RELATÓRIOS ===
+  
+  // Admin: Relatórios gerais do sistema
+  app.get("/api/admin/reports", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const { period = "30" } = req.query;
+      const days = parseInt(period as string);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      // Dados gerais
+      const totalUsers = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(users)
+        .where(eq(users.type, "client"));
+
+      const totalMerchants = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(merchants);
+
+      // Transações no período
+      const transactionStats = await db
+        .select({
+          total_amount: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`,
+          total_cashback: sql<number>`COALESCE(SUM(CAST(${transactions.cashback_amount} AS DECIMAL)), 0)`,
+          count: sql<number>`COUNT(*)`
+        })
+        .from(transactions)
+        .where(gte(transactions.created_at, startDate));
+
+      // Transferências no período
+      const transferStats = await db
+        .select({
+          total_amount: sql<number>`COALESCE(SUM(CAST(${transfers.amount} AS DECIMAL)), 0)`,
+          count: sql<number>`COUNT(*)`
+        })
+        .from(transfers)
+        .where(gte(transfers.created_at, startDate));
+
+      // Top lojistas por volume
+      const topMerchants = await db
+        .select({
+          merchant_id: transactions.merchant_id,
+          store_name: merchants.store_name,
+          total_sales: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`,
+          transaction_count: sql<number>`COUNT(*)`
+        })
+        .from(transactions)
+        .leftJoin(merchants, eq(transactions.merchant_id, merchants.id))
+        .where(gte(transactions.created_at, startDate))
+        .groupBy(transactions.merchant_id, merchants.store_name)
+        .orderBy(sql`total_sales DESC`)
+        .limit(10);
+
+      // Usuários mais ativos
+      const topUsers = await db
+        .select({
+          user_id: transactions.user_id,
+          user_name: users.name,
+          total_spent: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`,
+          total_cashback: sql<number>`COALESCE(SUM(CAST(${transactions.cashback_amount} AS DECIMAL)), 0)`,
+          transaction_count: sql<number>`COUNT(*)`
+        })
+        .from(transactions)
+        .leftJoin(users, eq(transactions.user_id, users.id))
+        .where(gte(transactions.created_at, startDate))
+        .groupBy(transactions.user_id, users.name)
+        .orderBy(sql`total_spent DESC`)
+        .limit(10);
+
+      res.json({
+        success: true,
+        period: `${days} dias`,
+        overview: {
+          total_users: totalUsers[0]?.count || 0,
+          total_merchants: totalMerchants[0]?.count || 0,
+          total_transactions: transactionStats[0]?.count || 0,
+          total_transaction_amount: transactionStats[0]?.total_amount || 0,
+          total_cashback_distributed: transactionStats[0]?.total_cashback || 0,
+          total_transfers: transferStats[0]?.count || 0,
+          total_transfer_amount: transferStats[0]?.total_amount || 0
+        },
+        top_merchants: topMerchants,
+        top_users: topUsers
+      });
+
+    } catch (error) {
+      console.error("Erro ao gerar relatórios:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Relatórios do lojista
+  app.get("/api/merchant/reports", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const { period = "30" } = req.query;
+      const days = parseInt(period as string);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Buscar dados do lojista
+      const merchantData = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchantData.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      // Estatísticas de vendas
+      const salesStats = await db
+        .select({
+          total_amount: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`,
+          total_cashback: sql<number>`COALESCE(SUM(CAST(${transactions.cashback_amount} AS DECIMAL)), 0)`,
+          count: sql<number>`COUNT(*)`
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.merchant_id, merchantData[0].id),
+            gte(transactions.created_at, startDate)
+          )
+        );
+
+      // Vendas por dia (últimos 7 dias)
+      const dailySales = await db
+        .select({
+          date: sql<string>`DATE(${transactions.created_at})`,
+          total_amount: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`,
+          count: sql<number>`COUNT(*)`
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.merchant_id, merchantData[0].id),
+            gte(transactions.created_at, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+          )
+        )
+        .groupBy(sql`DATE(${transactions.created_at})`)
+        .orderBy(sql`DATE(${transactions.created_at}) DESC`);
+
+      // Top clientes
+      const topClients = await db
+        .select({
+          user_name: users.name,
+          user_email: users.email,
+          total_spent: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`,
+          transaction_count: sql<number>`COUNT(*)`
+        })
+        .from(transactions)
+        .leftJoin(users, eq(transactions.user_id, users.id))
+        .where(
+          and(
+            eq(transactions.merchant_id, merchantData[0].id),
+            gte(transactions.created_at, startDate)
+          )
+        )
+        .groupBy(users.name, users.email)
+        .orderBy(sql`total_spent DESC`)
+        .limit(10);
+
+      res.json({
+        success: true,
+        period: `${days} dias`,
+        store_info: {
+          store_name: merchantData[0].store_name,
+          category: merchantData[0].category
+        },
+        sales_summary: {
+          total_amount: salesStats[0]?.total_amount || 0,
+          total_cashback_generated: salesStats[0]?.total_cashback || 0,
+          total_transactions: salesStats[0]?.count || 0,
+          commission_earned: (salesStats[0]?.total_amount || 0) * 0.02
+        },
+        daily_sales: dailySales,
+        top_clients: topClients
+      });
+
+    } catch (error) {
+      console.error("Erro ao gerar relatório do lojista:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Estatísticas de pagamento
+  app.get("/api/merchant/payment-stats", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Buscar dados do lojista
+      const merchantData = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchantData.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      // Estatísticas por método de pagamento
+      const paymentMethodStats = await db
+        .select({
+          payment_method: transactions.payment_method,
+          total_amount: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`,
+          count: sql<number>`COUNT(*)`
+        })
+        .from(transactions)
+        .where(eq(transactions.merchant_id, merchantData[0].id))
+        .groupBy(transactions.payment_method);
+
+      // QR Codes gerados vs. usados
+      const qrStats = await db
+        .select({
+          total_generated: sql<number>`COUNT(*)`,
+          total_used: sql<number>`SUM(CASE WHEN ${qrCodes.status} = 'used' THEN 1 ELSE 0 END)`
+        })
+        .from(qrCodes)
+        .where(eq(qrCodes.user_id, userId));
+
+      res.json({
+        success: true,
+        payment_methods: paymentMethodStats,
+        qr_code_stats: {
+          total_generated: qrStats[0]?.total_generated || 0,
+          total_used: qrStats[0]?.total_used || 0,
+          usage_rate: qrStats[0]?.total_generated > 0 
+            ? ((qrStats[0]?.total_used || 0) / qrStats[0].total_generated * 100).toFixed(1)
+            : "0.0"
+        }
+      });
+
+    } catch (error) {
+      console.error("Erro ao buscar estatísticas de pagamento:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
   await initializeCommissionSettings();
 
   const httpServer = createServer(app);
