@@ -1744,7 +1744,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .leftJoin(users, eq(withdrawalRequests.user_id, users.id));
 
       if (status && typeof status === 'string') {
-        query = query.where(eq(withdrawalRequests.status, status));
+        query = query.where(eq(withdrawalRequests.status, status as any));
       }
 
       const withdrawals = await query
