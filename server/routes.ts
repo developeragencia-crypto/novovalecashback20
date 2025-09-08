@@ -1127,6 +1127,202 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === SISTEMA DE QR CODE E PAGAMENTOS ===
+  
+  // Cliente: Processar pagamento via QR Code
+  app.post("/api/client/process-payment", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const { merchant_id, amount, description, qr_code_id } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      if (!merchant_id || !amount) {
+        return res.status(400).json({ message: "merchant_id e amount são obrigatórios" });
+      }
+
+      const paymentAmount = parseFloat(amount);
+      if (paymentAmount <= 0) {
+        return res.status(400).json({ message: "Valor deve ser maior que zero" });
+      }
+
+      // Verificar se o lojista existe
+      const merchant = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.id, merchant_id))
+        .limit(1);
+
+      if (!merchant.length) {
+        return res.status(404).json({ message: "Lojista não encontrado" });
+      }
+
+      // Calcular cashback (2% do valor)
+      const cashbackAmount = paymentAmount * 0.02;
+
+      // Criar transação
+      const newTransaction = await db.insert(transactions).values({
+        user_id: userId,
+        merchant_id: merchant_id,
+        amount: paymentAmount.toFixed(2),
+        cashback_amount: cashbackAmount.toFixed(2),
+        description: description || "Pagamento via QR Code",
+        status: "completed",
+        payment_method: "qr_code",
+        source: "qrcode",
+        qr_code_id: qr_code_id || null
+      }).returning();
+
+      // Atualizar saldo de cashback do cliente
+      const existingCashback = await db
+        .select()
+        .from(cashbacks)
+        .where(eq(cashbacks.user_id, userId))
+        .limit(1);
+
+      if (existingCashback.length > 0) {
+        const currentBalance = parseFloat(existingCashback[0].balance);
+        const currentTotal = parseFloat(existingCashback[0].total_earned);
+        
+        await db
+          .update(cashbacks)
+          .set({
+            balance: (currentBalance + cashbackAmount).toFixed(2),
+            total_earned: (currentTotal + cashbackAmount).toFixed(2),
+            updated_at: new Date()
+          })
+          .where(eq(cashbacks.user_id, userId));
+      } else {
+        await db.insert(cashbacks).values({
+          user_id: userId,
+          balance: cashbackAmount.toFixed(2),
+          total_earned: cashbackAmount.toFixed(2),
+          updated_at: new Date()
+        });
+      }
+
+      // Marcar QR code como usado se fornecido
+      if (qr_code_id) {
+        await db
+          .update(qrCodes)
+          .set({
+            status: "used",
+            used_by: userId,
+            used_at: new Date(),
+            used: true
+          })
+          .where(eq(qrCodes.code, qr_code_id));
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Pagamento processado com sucesso",
+        transaction: newTransaction[0],
+        cashback: cashbackAmount
+      });
+
+    } catch (error) {
+      console.error("Erro ao processar pagamento:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Gerar QR Code de pagamento
+  app.post("/api/merchant/qr-codes", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const { amount, description } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Buscar dados do lojista
+      const merchant = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchant.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      const paymentAmount = amount ? parseFloat(amount) : null;
+      if (paymentAmount && paymentAmount <= 0) {
+        return res.status(400).json({ message: "Valor deve ser maior que zero" });
+      }
+
+      // Gerar ID único para o QR code
+      const qrCodeId = `qr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Dados do QR Code
+      const qrData = {
+        type: "payment",
+        merchant_id: merchant[0].id,
+        merchant_name: merchant[0].store_name,
+        amount: paymentAmount,
+        description: description || "Pagamento",
+        qr_code_id: qrCodeId
+      };
+
+      // Salvar QR code no banco
+      const newQRCode = await db.insert(qrCodes).values({
+        user_id: userId,
+        code: qrCodeId,
+        data: JSON.stringify(qrData),
+        amount: paymentAmount ? paymentAmount.toFixed(2) : null,
+        description: description || "Pagamento",
+        type: "payment",
+        status: "active",
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000) // Expira em 24h
+      }).returning();
+
+      res.status(201).json({
+        success: true,
+        qr_code: {
+          id: qrCodeId,
+          data: JSON.stringify(qrData),
+          amount: paymentAmount,
+          description: description || "Pagamento",
+          status: "active",
+          created_at: newQRCode[0].created_at,
+          expires_at: newQRCode[0].expires_at
+        }
+      });
+
+    } catch (error) {
+      console.error("Erro ao gerar QR Code:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Listar QR Codes
+  app.get("/api/merchant/qr-codes", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const qrCodes_list = await db
+        .select()
+        .from(qrCodes)
+        .where(eq(qrCodes.user_id, userId))
+        .orderBy(desc(qrCodes.created_at))
+        .limit(50);
+
+      res.json(qrCodes_list);
+
+    } catch (error) {
+      console.error("Erro ao buscar QR Codes:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
   await initializeCommissionSettings();
 
   const httpServer = createServer(app);
