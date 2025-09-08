@@ -1323,6 +1323,210 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === SISTEMA DE TRANSFERÊNCIAS ===
+  
+  // Cliente: Buscar usuários para transferência
+  app.get("/api/client/search-users", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const { search, method } = req.query;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      if (!search || typeof search !== 'string' || search.length < 3) {
+        return res.status(400).json({ message: "Termo de busca deve ter pelo menos 3 caracteres" });
+      }
+
+      const searchField = method === 'phone' ? users.phone : users.email;
+      
+      const foundUsers = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          phone: users.phone,
+          photo: users.photo
+        })
+        .from(users)
+        .where(
+          and(
+            eq(searchField, search),
+            ne(users.id, userId), // Não pode transferir para si mesmo
+            eq(users.type, "client") // Só pode transferir para outros clientes
+          )
+        )
+        .limit(1);
+
+      if (foundUsers.length === 0) {
+        return res.status(404).json({ message: "Usuário não encontrado" });
+      }
+
+      res.json(foundUsers[0]);
+
+    } catch (error) {
+      console.error("Erro ao buscar usuários:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Cliente: Realizar transferência
+  app.post("/api/client/transfers", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const { recipient_email, recipient_phone, amount, description, search_method } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      if (!amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ message: "Valor deve ser maior que zero" });
+      }
+
+      const transferAmount = parseFloat(amount);
+      const recipient = recipient_email || recipient_phone;
+
+      if (!recipient) {
+        return res.status(400).json({ message: "Email ou telefone do destinatário é obrigatório" });
+      }
+
+      // Buscar o destinatário
+      const searchField = search_method === 'phone' ? users.phone : users.email;
+      const recipientUser = await db
+        .select()
+        .from(users)
+        .where(
+          and(
+            eq(searchField, recipient),
+            ne(users.id, userId), // Não pode transferir para si mesmo
+            eq(users.type, "client") // Só pode transferir para outros clientes
+          )
+        )
+        .limit(1);
+
+      if (!recipientUser.length) {
+        return res.status(404).json({ message: "Destinatário não encontrado" });
+      }
+
+      // Verificar saldo do remetente
+      const senderCashback = await db
+        .select()
+        .from(cashbacks)
+        .where(eq(cashbacks.user_id, userId))
+        .limit(1);
+
+      const currentBalance = senderCashback.length > 0 ? parseFloat(senderCashback[0].balance) : 0;
+
+      if (currentBalance < transferAmount) {
+        return res.status(400).json({ 
+          message: `Saldo insuficiente. Saldo atual: R$ ${currentBalance.toFixed(2)}` 
+        });
+      }
+
+      // Criar transferência
+      const newTransfer = await db.insert(transfers).values({
+        from_user_id: userId,
+        to_user_id: recipientUser[0].id,
+        amount: transferAmount.toFixed(2),
+        description: description || "Transferência",
+        status: "completed",
+        type: "cashback_transfer"
+      }).returning();
+
+      // Debitar do remetente
+      await db
+        .update(cashbacks)
+        .set({
+          balance: (currentBalance - transferAmount).toFixed(2),
+          updated_at: new Date()
+        })
+        .where(eq(cashbacks.user_id, userId));
+
+      // Creditar ao destinatário
+      const recipientCashback = await db
+        .select()
+        .from(cashbacks)
+        .where(eq(cashbacks.user_id, recipientUser[0].id))
+        .limit(1);
+
+      if (recipientCashback.length > 0) {
+        const recipientCurrentBalance = parseFloat(recipientCashback[0].balance);
+        const recipientTotalEarned = parseFloat(recipientCashback[0].total_earned);
+        
+        await db
+          .update(cashbacks)
+          .set({
+            balance: (recipientCurrentBalance + transferAmount).toFixed(2),
+            total_earned: (recipientTotalEarned + transferAmount).toFixed(2),
+            updated_at: new Date()
+          })
+          .where(eq(cashbacks.user_id, recipientUser[0].id));
+      } else {
+        await db.insert(cashbacks).values({
+          user_id: recipientUser[0].id,
+          balance: transferAmount.toFixed(2),
+          total_earned: transferAmount.toFixed(2),
+          updated_at: new Date()
+        });
+      }
+
+      res.status(201).json({
+        success: true,
+        message: "Transferência realizada com sucesso",
+        transfer: newTransfer[0],
+        recipient: {
+          name: recipientUser[0].name,
+          email: recipientUser[0].email
+        }
+      });
+
+    } catch (error) {
+      console.error("Erro ao realizar transferência:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Cliente: Histórico de transferências
+  app.get("/api/client/transfers", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const transferHistory = await db
+        .select({
+          id: transfers.id,
+          type: sql<string>`CASE WHEN ${transfers.from_user_id} = ${userId} THEN 'outgoing' ELSE 'incoming' END`,
+          from: sql<string>`sender.name`,
+          to: sql<string>`recipient.name`,
+          from_email: sql<string>`sender.email`,
+          to_email: sql<string>`recipient.email`,
+          amount: transfers.amount,
+          description: transfers.description,
+          status: transfers.status,
+          created_at: transfers.created_at
+        })
+        .from(transfers)
+        .leftJoin(sql`users AS sender`, eq(transfers.from_user_id, sql`sender.id`))
+        .leftJoin(sql`users AS recipient`, eq(transfers.to_user_id, sql`recipient.id`))
+        .where(
+          sql`${transfers.from_user_id} = ${userId} OR ${transfers.to_user_id} = ${userId}`
+        )
+        .orderBy(desc(transfers.created_at))
+        .limit(50);
+
+      res.json(transferHistory);
+
+    } catch (error) {
+      console.error("Erro ao buscar histórico de transferências:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
   await initializeCommissionSettings();
 
   const httpServer = createServer(app);
