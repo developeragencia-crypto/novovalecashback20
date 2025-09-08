@@ -2368,6 +2368,422 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === SISTEMA DE PRODUTOS (CRUD COMPLETO) ===
+  
+  // Lojista: Criar produto
+  app.post("/api/merchant/products", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const {
+        name, description, price, category, image_url,
+        stock_quantity, active, promotion_price, promotion_description
+      } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      if (!name || !price) {
+        return res.status(400).json({ message: "Nome e preço são obrigatórios" });
+      }
+
+      // Buscar dados do lojista
+      const merchantData = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchantData.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      const productPrice = parseFloat(price);
+      const promotionPriceValue = promotion_price ? parseFloat(promotion_price) : null;
+
+      if (productPrice <= 0) {
+        return res.status(400).json({ message: "Preço deve ser maior que zero" });
+      }
+
+      if (promotionPriceValue && promotionPriceValue >= productPrice) {
+        return res.status(400).json({ message: "Preço promocional deve ser menor que o preço normal" });
+      }
+
+      const newProduct = await db.insert(products).values({
+        merchant_id: merchantData[0].id,
+        name: name,
+        description: description || null,
+        price: productPrice.toFixed(2),
+        category: category || "Geral",
+        image_url: image_url || null,
+        stock_quantity: stock_quantity || 0,
+        active: active !== undefined ? active : true,
+        promotion_price: promotionPriceValue ? promotionPriceValue.toFixed(2) : null,
+        promotion_description: promotion_description || null
+      }).returning();
+
+      res.status(201).json({
+        success: true,
+        message: "Produto criado com sucesso",
+        product: newProduct[0]
+      });
+
+    } catch (error) {
+      console.error("Erro ao criar produto:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Editar produto
+  app.put("/api/merchant/products/:id", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const {
+        name, description, price, category, image_url,
+        stock_quantity, active, promotion_price, promotion_description
+      } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Buscar dados do lojista
+      const merchantData = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchantData.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      // Verificar se o produto pertence ao lojista
+      const existingProduct = await db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.id, parseInt(id)),
+            eq(products.merchant_id, merchantData[0].id)
+          )
+        )
+        .limit(1);
+
+      if (!existingProduct.length) {
+        return res.status(404).json({ message: "Produto não encontrado" });
+      }
+
+      const updateData: any = {};
+      
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (category !== undefined) updateData.category = category;
+      if (image_url !== undefined) updateData.image_url = image_url;
+      if (stock_quantity !== undefined) updateData.stock_quantity = stock_quantity;
+      if (active !== undefined) updateData.active = active;
+      if (promotion_description !== undefined) updateData.promotion_description = promotion_description;
+      
+      if (price !== undefined) {
+        const productPrice = parseFloat(price);
+        if (productPrice <= 0) {
+          return res.status(400).json({ message: "Preço deve ser maior que zero" });
+        }
+        updateData.price = productPrice.toFixed(2);
+      }
+
+      if (promotion_price !== undefined) {
+        if (promotion_price === null || promotion_price === "") {
+          updateData.promotion_price = null;
+        } else {
+          const promotionPriceValue = parseFloat(promotion_price);
+          const currentPrice = parseFloat(updateData.price || existingProduct[0].price);
+          
+          if (promotionPriceValue >= currentPrice) {
+            return res.status(400).json({ message: "Preço promocional deve ser menor que o preço normal" });
+          }
+          updateData.promotion_price = promotionPriceValue.toFixed(2);
+        }
+      }
+
+      const updatedProduct = await db
+        .update(products)
+        .set(updateData)
+        .where(eq(products.id, parseInt(id)))
+        .returning();
+
+      res.json({
+        success: true,
+        message: "Produto atualizado com sucesso",
+        product: updatedProduct[0]
+      });
+
+    } catch (error) {
+      console.error("Erro ao atualizar produto:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Deletar produto
+  app.delete("/api/merchant/products/:id", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Buscar dados do lojista
+      const merchantData = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchantData.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      // Verificar se o produto pertence ao lojista
+      const existingProduct = await db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.id, parseInt(id)),
+            eq(products.merchant_id, merchantData[0].id)
+          )
+        )
+        .limit(1);
+
+      if (!existingProduct.length) {
+        return res.status(404).json({ message: "Produto não encontrado" });
+      }
+
+      // Verificar se o produto tem transações
+      const productTransactions = await db
+        .select()
+        .from(transactionItems)
+        .where(eq(transactionItems.product_id, parseInt(id)))
+        .limit(1);
+
+      if (productTransactions.length > 0) {
+        // Apenas desativar o produto se já tem transações
+        await db
+          .update(products)
+          .set({ active: false })
+          .where(eq(products.id, parseInt(id)));
+
+        res.json({
+          success: true,
+          message: "Produto desativado (possui histórico de transações)"
+        });
+      } else {
+        // Deletar completamente se não tem transações
+        await db
+          .delete(products)
+          .where(eq(products.id, parseInt(id)));
+
+        res.json({
+          success: true,
+          message: "Produto deletado com sucesso"
+        });
+      }
+
+    } catch (error) {
+      console.error("Erro ao deletar produto:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Público: Buscar produto específico
+  app.get("/api/products/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const product = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          description: products.description,
+          price: products.price,
+          category: products.category,
+          image_url: products.image_url,
+          promotion_price: products.promotion_price,
+          promotion_description: products.promotion_description,
+          stock_quantity: products.stock_quantity,
+          active: products.active,
+          created_at: products.created_at,
+          merchant_name: merchants.store_name,
+          merchant_category: merchants.category
+        })
+        .from(products)
+        .leftJoin(merchants, eq(products.merchant_id, merchants.id))
+        .where(
+          and(
+            eq(products.id, parseInt(id)),
+            eq(products.active, true),
+            eq(merchants.approved, true)
+          )
+        )
+        .limit(1);
+
+      if (!product.length) {
+        return res.status(404).json({ message: "Produto não encontrado" });
+      }
+
+      res.json(product[0]);
+
+    } catch (error) {
+      console.error("Erro ao buscar produto:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // === SISTEMA DE CONFIGURAÇÕES ADMINISTRATIVAS ===
+  
+  // Admin: Buscar configurações do sistema
+  app.get("/api/admin/settings", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      // Buscar configurações de comissão
+      const commissionConfig = await db
+        .select()
+        .from(commissionSettings)
+        .limit(1);
+
+      // Buscar configurações de marca (se existir na tabela)
+      const brandConfig = await db
+        .select()
+        .from(brandSettings)
+        .limit(1);
+
+      res.json({
+        success: true,
+        commission_settings: commissionConfig[0] || null,
+        brand_settings: brandConfig[0] || null
+      });
+
+    } catch (error) {
+      console.error("Erro ao buscar configurações:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Admin: Atualizar configurações de comissão
+  app.put("/api/admin/commission-settings", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const {
+        platform_fee, merchant_commission, client_cashback,
+        referral_bonus, min_withdrawal, max_cashback_bonus, withdrawal_fee
+      } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const updateData: any = { updated_by: userId };
+      
+      if (platform_fee !== undefined) updateData.platform_fee = parseFloat(platform_fee).toFixed(1);
+      if (merchant_commission !== undefined) updateData.merchant_commission = parseFloat(merchant_commission).toFixed(1);
+      if (client_cashback !== undefined) updateData.client_cashback = parseFloat(client_cashback).toFixed(1);
+      if (referral_bonus !== undefined) updateData.referral_bonus = parseFloat(referral_bonus).toFixed(1);
+      if (min_withdrawal !== undefined) updateData.min_withdrawal = parseFloat(min_withdrawal).toFixed(2);
+      if (max_cashback_bonus !== undefined) updateData.max_cashback_bonus = parseFloat(max_cashback_bonus).toFixed(2);
+      if (withdrawal_fee !== undefined) updateData.withdrawal_fee = parseFloat(withdrawal_fee).toFixed(2);
+
+      // Verificar se existe configuração
+      const existingConfig = await db
+        .select()
+        .from(commissionSettings)
+        .limit(1);
+
+      let updatedConfig;
+      
+      if (existingConfig.length > 0) {
+        updatedConfig = await db
+          .update(commissionSettings)
+          .set(updateData)
+          .where(eq(commissionSettings.id, existingConfig[0].id))
+          .returning();
+      } else {
+        updatedConfig = await db
+          .insert(commissionSettings)
+          .values(updateData)
+          .returning();
+      }
+
+      res.json({
+        success: true,
+        message: "Configurações de comissão atualizadas",
+        settings: updatedConfig[0]
+      });
+
+    } catch (error) {
+      console.error("Erro ao atualizar configurações de comissão:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Admin: Atualizar configurações de marca
+  app.put("/api/admin/brand-settings", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const {
+        logo_url, favicon_url, app_name, primary_color,
+        secondary_color, app_description, login_background_url, auto_apply
+      } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const updateData: any = { updated_by: userId };
+      
+      if (logo_url !== undefined) updateData.logo_url = logo_url;
+      if (favicon_url !== undefined) updateData.favicon_url = favicon_url;
+      if (app_name !== undefined) updateData.app_name = app_name;
+      if (primary_color !== undefined) updateData.primary_color = primary_color;
+      if (secondary_color !== undefined) updateData.secondary_color = secondary_color;
+      if (app_description !== undefined) updateData.app_description = app_description;
+      if (login_background_url !== undefined) updateData.login_background_url = login_background_url;
+      if (auto_apply !== undefined) updateData.auto_apply = auto_apply;
+
+      // Verificar se existe configuração de marca
+      const existingBrandConfig = await db
+        .select()
+        .from(brandSettings)
+        .limit(1);
+
+      let updatedBrandConfig;
+      
+      if (existingBrandConfig.length > 0) {
+        updatedBrandConfig = await db
+          .update(brandSettings)
+          .set(updateData)
+          .where(eq(brandSettings.id, existingBrandConfig[0].id))
+          .returning();
+      } else {
+        updatedBrandConfig = await db
+          .insert(brandSettings)
+          .values(updateData)
+          .returning();
+      }
+
+      res.json({
+        success: true,
+        message: "Configurações de marca atualizadas",
+        settings: updatedBrandConfig[0]
+      });
+
+    } catch (error) {
+      console.error("Erro ao atualizar configurações de marca:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
   await initializeCommissionSettings();
 
   const httpServer = createServer(app);
