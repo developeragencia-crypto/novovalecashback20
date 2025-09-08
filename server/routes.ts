@@ -40,7 +40,11 @@ import {
   insertWithdrawalRequestSchema,
   type WithdrawalRequest,
   type InsertWithdrawalRequest,
-  WithdrawalStatus
+  WithdrawalStatus,
+  brandSettings,
+  insertBrandSettingsSchema,
+  type BrandSetting,
+  type InsertBrandSetting
 } from "@shared/schema";
 
 const isAuthenticated = (req: Request, res: Response, next: Function) => {
@@ -2653,11 +2657,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(commissionSettings)
         .limit(1);
 
-      // Buscar configurações de marca (se existir na tabela)
-      const brandConfig = await db
-        .select()
-        .from(brandSettings)
-        .limit(1);
+      // Buscar configurações de marca (opcional - tabela pode não existir)
+      let brandConfig: any[] = [];
+      try {
+        brandConfig = await db
+          .select()
+          .from(brandSettings)
+          .limit(1);
+      } catch (error) {
+        console.log("Tabela brandSettings não existe ainda");
+      }
 
       res.json({
         success: true,
@@ -2751,25 +2760,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (login_background_url !== undefined) updateData.login_background_url = login_background_url;
       if (auto_apply !== undefined) updateData.auto_apply = auto_apply;
 
-      // Verificar se existe configuração de marca
-      const existingBrandConfig = await db
-        .select()
-        .from(brandSettings)
-        .limit(1);
+      // Verificar se existe configuração de marca (opcional)
+      let existingBrandConfig: any[] = [];
+      try {
+        existingBrandConfig = await db
+          .select()
+          .from(brandSettings)
+          .limit(1);
+      } catch (error) {
+        console.log("Tabela brandSettings não existe ainda");
+      }
 
       let updatedBrandConfig;
       
-      if (existingBrandConfig.length > 0) {
-        updatedBrandConfig = await db
-          .update(brandSettings)
-          .set(updateData)
-          .where(eq(brandSettings.id, existingBrandConfig[0].id))
-          .returning();
-      } else {
-        updatedBrandConfig = await db
-          .insert(brandSettings)
-          .values(updateData)
-          .returning();
+      try {
+        if (existingBrandConfig.length > 0) {
+          updatedBrandConfig = await db
+            .update(brandSettings)
+            .set(updateData)
+            .where(eq(brandSettings.id, existingBrandConfig[0].id))
+            .returning();
+        } else {
+          updatedBrandConfig = await db
+            .insert(brandSettings)
+            .values(updateData)
+            .returning();
+        }
+      } catch (error) {
+        return res.status(500).json({ message: "Erro ao atualizar configurações de marca" });
       }
 
       res.json({
@@ -2780,6 +2798,311 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error) {
       console.error("Erro ao atualizar configurações de marca:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // === SISTEMA DE SCANNER QR ===
+  
+  // Cliente: Escanear e processar QR Code
+  app.post("/api/client/scan-qr", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const { qr_data } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      if (!qr_data) {
+        return res.status(400).json({ message: "Dados do QR Code são obrigatórios" });
+      }
+
+      let qrInfo;
+      try {
+        qrInfo = JSON.parse(qr_data);
+      } catch (error) {
+        return res.status(400).json({ message: "QR Code inválido" });
+      }
+
+      if (qrInfo.type !== "payment") {
+        return res.status(400).json({ message: "Tipo de QR Code não suportado" });
+      }
+
+      // Verificar se o QR code existe e está ativo
+      const qrCode = await db
+        .select()
+        .from(qrCodes)
+        .where(
+          and(
+            eq(qrCodes.code, qrInfo.qr_code_id),
+            eq(qrCodes.status, "active")
+          )
+        )
+        .limit(1);
+
+      if (!qrCode.length) {
+        return res.status(404).json({ message: "QR Code não encontrado ou expirado" });
+      }
+
+      // Verificar se não expirou
+      if (qrCode[0].expires_at && new Date() > new Date(qrCode[0].expires_at)) {
+        await db
+          .update(qrCodes)
+          .set({ status: "expired" })
+          .where(eq(qrCodes.code, qrInfo.qr_code_id));
+          
+        return res.status(400).json({ message: "QR Code expirado" });
+      }
+
+      // Verificar se o usuário não está tentando pagar seu próprio QR code
+      if (qrCode[0].user_id === userId) {
+        return res.status(400).json({ message: "Você não pode pagar seu próprio QR Code" });
+      }
+
+      // Retornar informações do QR code para confirmação
+      res.json({
+        success: true,
+        qr_info: {
+          merchant_id: qrInfo.merchant_id,
+          merchant_name: qrInfo.merchant_name,
+          amount: qrInfo.amount,
+          description: qrInfo.description,
+          qr_code_id: qrInfo.qr_code_id
+        },
+        message: "QR Code válido - confirme o pagamento"
+      });
+
+    } catch (error) {
+      console.error("Erro ao escanear QR Code:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // === SISTEMA DE LOGS DE AUDITORIA ===
+  
+  // Admin: Buscar logs de auditoria
+  app.get("/api/admin/audit-logs", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const { action, user_id, start_date, end_date, limit = "100" } = req.query;
+      
+      let query = db
+        .select({
+          id: auditLogs.id,
+          action: auditLogs.action,
+          details: auditLogs.details,
+          ip_address: auditLogs.ip_address,
+          created_at: auditLogs.created_at,
+          user_name: users.name,
+          user_email: users.email
+        })
+        .from(auditLogs)
+        .leftJoin(users, eq(auditLogs.user_id, users.id));
+
+      const conditions = [];
+      
+      if (action && typeof action === 'string') {
+        conditions.push(eq(auditLogs.action, action));
+      }
+      
+      if (user_id && typeof user_id === 'string') {
+        conditions.push(eq(auditLogs.user_id, parseInt(user_id)));
+      }
+      
+      if (start_date && typeof start_date === 'string') {
+        conditions.push(gte(auditLogs.created_at, new Date(start_date)));
+      }
+      
+      if (end_date && typeof end_date === 'string') {
+        conditions.push(lte(auditLogs.created_at, new Date(end_date)));
+      }
+
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
+      }
+
+      const logs = await query
+        .orderBy(desc(auditLogs.created_at))
+        .limit(parseInt(limit as string));
+
+      res.json(logs);
+
+    } catch (error) {
+      console.error("Erro ao buscar logs de auditoria:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Função helper para criar logs de auditoria
+  const createAuditLog = async (userId: number | null, action: string, details: string, ipAddress?: string) => {
+    try {
+      await db.insert(auditLogs).values({
+        user_id: userId,
+        action: action,
+        details: details,
+        ip_address: ipAddress || null
+      });
+    } catch (error) {
+      console.error("Erro ao criar log de auditoria:", error);
+    }
+  };
+
+  // === MELHORIAS DE SEGURANÇA ===
+  
+  // Middleware para registrar tentativas de login
+  const logLoginAttempt = async (req: Request, email: string, success: boolean) => {
+    const ipAddress = req.ip || req.connection.remoteAddress || "unknown";
+    const action = success ? "LOGIN_SUCCESS" : "LOGIN_FAILED";
+    const details = `Tentativa de login para ${email} - ${success ? "Sucesso" : "Falhou"}`;
+    
+    await createAuditLog(null, action, details, ipAddress);
+  };
+
+  // Admin: Estatísticas de segurança
+  app.get("/api/admin/security-stats", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const { period = "7" } = req.query;
+      const days = parseInt(period as string);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      // Tentativas de login falhadas
+      const failedLogins = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.action, "LOGIN_FAILED"),
+            gte(auditLogs.created_at, startDate)
+          )
+        );
+
+      // Logins bem-sucedidos
+      const successfulLogins = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.action, "LOGIN_SUCCESS"),
+            gte(auditLogs.created_at, startDate)
+          )
+        );
+
+      // Ações administrativas
+      const adminActions = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(auditLogs)
+        .where(
+          and(
+            sql`${auditLogs.action} LIKE 'ADMIN_%'`,
+            gte(auditLogs.created_at, startDate)
+          )
+        );
+
+      // IPs mais ativos
+      const topIPs = await db
+        .select({
+          ip_address: auditLogs.ip_address,
+          count: sql<number>`COUNT(*)`
+        })
+        .from(auditLogs)
+        .where(gte(auditLogs.created_at, startDate))
+        .groupBy(auditLogs.ip_address)
+        .orderBy(sql`count DESC`)
+        .limit(10);
+
+      res.json({
+        success: true,
+        period: `${days} dias`,
+        stats: {
+          failed_logins: failedLogins[0]?.count || 0,
+          successful_logins: successfulLogins[0]?.count || 0,
+          admin_actions: adminActions[0]?.count || 0,
+          top_ips: topIPs
+        }
+      });
+
+    } catch (error) {
+      console.error("Erro ao buscar estatísticas de segurança:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // === OTIMIZAÇÕES DE PERFORMANCE ===
+  
+  // Cliente: Dashboard otimizado com cache
+  app.get("/api/client/dashboard-optimized", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Usar Promise.all para executar consultas em paralelo
+      const [
+        cashbackData,
+        recentTransactions,
+        transferStats,
+        referralStats
+      ] = await Promise.all([
+        // Dados de cashback
+        db
+          .select()
+          .from(cashbacks)
+          .where(eq(cashbacks.user_id, userId))
+          .limit(1),
+
+        // Últimas 5 transações
+        db
+          .select({
+            id: transactions.id,
+            amount: transactions.amount,
+            cashback_amount: transactions.cashback_amount,
+            description: transactions.description,
+            created_at: transactions.created_at,
+            merchant_name: merchants.store_name
+          })
+          .from(transactions)
+          .leftJoin(merchants, eq(transactions.merchant_id, merchants.id))
+          .where(eq(transactions.user_id, userId))
+          .orderBy(desc(transactions.created_at))
+          .limit(5),
+
+        // Estatísticas de transferências
+        db
+          .select({
+            sent: sql<number>`COALESCE(SUM(CASE WHEN ${transfers.from_user_id} = ${userId} THEN CAST(${transfers.amount} AS DECIMAL) ELSE 0 END), 0)`,
+            received: sql<number>`COALESCE(SUM(CASE WHEN ${transfers.to_user_id} = ${userId} THEN CAST(${transfers.amount} AS DECIMAL) ELSE 0 END), 0)`,
+            count: sql<number>`COUNT(*)`
+          })
+          .from(transfers)
+          .where(
+            sql`${transfers.from_user_id} = ${userId} OR ${transfers.to_user_id} = ${userId}`
+          ),
+
+        // Estatísticas de indicações
+        db
+          .select({
+            total_referrals: sql<number>`COUNT(*)`,
+            total_bonus: sql<number>`COALESCE(SUM(CAST(${referrals.bonus} AS DECIMAL)), 0)`
+          })
+          .from(referrals)
+          .where(eq(referrals.referrer_id, userId))
+      ]);
+
+      res.json({
+        success: true,
+        dashboard: {
+          cashback: cashbackData[0] || { balance: "0.00", total_earned: "0.00" },
+          recent_transactions: recentTransactions,
+          transfer_stats: transferStats[0] || { sent: 0, received: 0, count: 0 },
+          referral_stats: referralStats[0] || { total_referrals: 0, total_bonus: 0 }
+        }
+      });
+
+    } catch (error) {
+      console.error("Erro ao buscar dashboard otimizado:", error);
       res.status(500).json({ message: "Erro interno do servidor" });
     }
   });
