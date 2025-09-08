@@ -18,6 +18,7 @@ import {
   transfers,
   commissionSettings,
   notifications,
+  auditLogs,
   PaymentMethod,
   TransactionStatus,
   UserType,
@@ -1220,6 +1221,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(eq(qrCodes.code, qr_code_id));
       }
 
+      // Criar notificação para o cliente
+      await createNotification(
+        userId,
+        "transaction",
+        "Pagamento realizado!",
+        `Pagamento de R$ ${paymentAmount.toFixed(2)} processado. Cashback de R$ ${cashbackAmount.toFixed(2)} adicionado.`,
+        { transaction_id: newTransaction[0].id, amount: paymentAmount, cashback: cashbackAmount }
+      );
+
+      // Criar notificação para o lojista
+      if (merchant[0].user_id) {
+        await createNotification(
+          merchant[0].user_id,
+          "transaction",
+          "Nova venda!",
+          `Venda de R$ ${paymentAmount.toFixed(2)} realizada via QR Code.`,
+          { transaction_id: newTransaction[0].id, amount: paymentAmount }
+        );
+      }
+
       res.status(200).json({
         success: true,
         message: "Pagamento processado com sucesso",
@@ -1476,6 +1497,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Criar notificações para remetente e destinatário
+      await createNotification(
+        userId,
+        "transfer",
+        "Transferência enviada",
+        `Você transferiu R$ ${transferAmount.toFixed(2)} para ${recipientUser[0].name}.`,
+        { transfer_id: newTransfer[0].id, amount: transferAmount, recipient: recipientUser[0].name }
+      );
+
+      await createNotification(
+        recipientUser[0].id,
+        "transfer",
+        "Transferência recebida",
+        `Você recebeu R$ ${transferAmount.toFixed(2)} de ${req.user?.name || "um usuário"}.`,
+        { transfer_id: newTransfer[0].id, amount: transferAmount, sender: req.user?.name }
+      );
+
       res.status(201).json({
         success: true,
         message: "Transferência realizada com sucesso",
@@ -1682,6 +1720,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "pending"
       }).returning();
 
+      // Criar notificação para o lojista
+      await createNotification(
+        userId,
+        "withdrawal",
+        "Solicitação de saque criada",
+        `Sua solicitação de saque de R$ ${withdrawalAmount.toFixed(2)} foi criada e está em análise.`,
+        { withdrawal_id: newWithdrawal[0].id, amount: withdrawalAmount }
+      );
+
       res.status(201).json({
         success: true,
         message: "Solicitação de saque criada com sucesso",
@@ -1792,6 +1839,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!updatedWithdrawal.length) {
         return res.status(404).json({ message: "Solicitação de saque não encontrada" });
+      }
+
+      // Criar notificação para o lojista sobre a decisão
+      if (updatedWithdrawal[0].user_id) {
+        const statusMessage = status === 'approved' ? 'aprovada' : 'rejeitada';
+        await createNotification(
+          updatedWithdrawal[0].user_id,
+          "withdrawal",
+          `Solicitação de saque ${statusMessage}`,
+          `Sua solicitação de saque de R$ ${updatedWithdrawal[0].amount} foi ${statusMessage}.`,
+          { withdrawal_id: updatedWithdrawal[0].id, status: status, admin_notes: admin_notes }
+        );
       }
 
       res.json({
