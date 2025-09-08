@@ -1527,6 +1527,281 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === SISTEMA DE SAQUES ===
+  
+  // Lojista: Consultar saldo da carteira
+  app.get("/api/merchant/wallet", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Buscar saldo de comissões do lojista
+      const merchantData = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchantData.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      // Calcular saldo total de comissões (2% das vendas)
+      const salesTotal = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`
+        })
+        .from(transactions)
+        .where(eq(transactions.merchant_id, merchantData[0].id));
+
+      const totalSales = salesTotal[0]?.total || 0;
+      const totalCommissions = totalSales * 0.02; // 2% de comissão
+
+      // Consultar saques já solicitados
+      const pendingWithdrawals = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(CAST(${withdrawalRequests.amount} AS DECIMAL)), 0)`,
+          count: sql<number>`COUNT(*)`
+        })
+        .from(withdrawalRequests)
+        .where(
+          and(
+            eq(withdrawalRequests.merchant_id, merchantData[0].id),
+            eq(withdrawalRequests.status, "pending")
+          )
+        );
+
+      const pendingAmount = pendingWithdrawals[0]?.total || 0;
+      const pendingCount = pendingWithdrawals[0]?.count || 0;
+
+      const currentBalance = totalCommissions;
+      const availableBalance = Math.max(0, currentBalance - pendingAmount);
+
+      res.json({
+        success: true,
+        walletData: {
+          currentBalance: currentBalance,
+          pendingAmount: pendingAmount,
+          pendingCount: pendingCount,
+          availableBalance: availableBalance
+        }
+      });
+
+    } catch (error) {
+      console.error("Erro ao consultar carteira:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Solicitar saque
+  app.post("/api/merchant/withdrawal-requests", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const {
+        amount, full_name, store_name, phone, email,
+        bank_name, agency, account, payment_method
+      } = req.body;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      if (!amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ message: "Valor deve ser maior que zero" });
+      }
+
+      const withdrawalAmount = parseFloat(amount);
+
+      if (withdrawalAmount < 20) {
+        return res.status(400).json({ message: "Valor mínimo para saque é R$ 20,00" });
+      }
+
+      // Buscar dados do lojista
+      const merchantData = await db
+        .select()
+        .from(merchants)
+        .where(eq(merchants.user_id, userId))
+        .limit(1);
+
+      if (!merchantData.length) {
+        return res.status(404).json({ message: "Dados do lojista não encontrados" });
+      }
+
+      // Verificar saldo disponível
+      const salesTotal = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(CAST(${transactions.amount} AS DECIMAL)), 0)`
+        })
+        .from(transactions)
+        .where(eq(transactions.merchant_id, merchantData[0].id));
+
+      const totalSales = salesTotal[0]?.total || 0;
+      const totalCommissions = totalSales * 0.02;
+
+      const pendingWithdrawals = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(CAST(${withdrawalRequests.amount} AS DECIMAL)), 0)`
+        })
+        .from(withdrawalRequests)
+        .where(
+          and(
+            eq(withdrawalRequests.merchant_id, merchantData[0].id),
+            eq(withdrawalRequests.status, "pending")
+          )
+        );
+
+      const pendingAmount = pendingWithdrawals[0]?.total || 0;
+      const availableBalance = Math.max(0, totalCommissions - pendingAmount);
+
+      if (withdrawalAmount > availableBalance) {
+        return res.status(400).json({ 
+          message: `Saldo insuficiente. Saldo disponível: R$ ${availableBalance.toFixed(2)}` 
+        });
+      }
+
+      // Criar solicitação de saque
+      const newWithdrawal = await db.insert(withdrawalRequests).values({
+        user_id: userId,
+        merchant_id: merchantData[0].id,
+        amount: withdrawalAmount.toFixed(2),
+        full_name: full_name,
+        store_name: store_name,
+        phone: phone,
+        email: email,
+        bank_name: bank_name,
+        agency: agency,
+        account: account,
+        payment_method: payment_method,
+        status: "pending"
+      }).returning();
+
+      res.status(201).json({
+        success: true,
+        message: "Solicitação de saque criada com sucesso",
+        withdrawal: newWithdrawal[0]
+      });
+
+    } catch (error) {
+      console.error("Erro ao criar solicitação de saque:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Lojista: Listar solicitações de saque
+  app.get("/api/merchant/withdrawal-requests", isUserType("merchant"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const withdrawals = await db
+        .select()
+        .from(withdrawalRequests)
+        .where(eq(withdrawalRequests.user_id, userId))
+        .orderBy(desc(withdrawalRequests.created_at))
+        .limit(50);
+
+      res.json(withdrawals);
+
+    } catch (error) {
+      console.error("Erro ao buscar solicitações de saque:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Admin: Listar todas as solicitações de saque
+  app.get("/api/admin/withdrawal-requests", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const { status } = req.query;
+      
+      let query = db
+        .select({
+          id: withdrawalRequests.id,
+          user_id: withdrawalRequests.user_id,
+          merchant_id: withdrawalRequests.merchant_id,
+          amount: withdrawalRequests.amount,
+          full_name: withdrawalRequests.full_name,
+          store_name: withdrawalRequests.store_name,
+          phone: withdrawalRequests.phone,
+          email: withdrawalRequests.email,
+          bank_name: withdrawalRequests.bank_name,
+          agency: withdrawalRequests.agency,
+          account: withdrawalRequests.account,
+          payment_method: withdrawalRequests.payment_method,
+          status: withdrawalRequests.status,
+          created_at: withdrawalRequests.created_at,
+          processed_at: withdrawalRequests.processed_at,
+          notes: withdrawalRequests.notes,
+          userName: users.name,
+          userEmail: users.email
+        })
+        .from(withdrawalRequests)
+        .leftJoin(users, eq(withdrawalRequests.user_id, users.id));
+
+      if (status && typeof status === 'string') {
+        query = query.where(eq(withdrawalRequests.status, status));
+      }
+
+      const withdrawals = await query
+        .orderBy(desc(withdrawalRequests.created_at))
+        .limit(100);
+
+      res.json(withdrawals);
+
+    } catch (error) {
+      console.error("Erro ao buscar solicitações de saque:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Admin: Processar solicitação de saque (aprovar/rejeitar)
+  app.put("/api/admin/withdrawal-requests/:id", isUserType("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status, admin_notes } = req.body;
+      const adminUserId = req.user?.id;
+      
+      if (!adminUserId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Status deve ser 'approved' ou 'rejected'" });
+      }
+
+      // Atualizar status da solicitação
+      const updatedWithdrawal = await db
+        .update(withdrawalRequests)
+        .set({
+          status: status,
+          processed_by: adminUserId,
+          processed_at: new Date(),
+          notes: admin_notes || null
+        })
+        .where(eq(withdrawalRequests.id, parseInt(id)))
+        .returning();
+
+      if (!updatedWithdrawal.length) {
+        return res.status(404).json({ message: "Solicitação de saque não encontrada" });
+      }
+
+      res.json({
+        success: true,
+        message: `Solicitação ${status === 'approved' ? 'aprovada' : 'rejeitada'} com sucesso`,
+        withdrawal: updatedWithdrawal[0]
+      });
+
+    } catch (error) {
+      console.error("Erro ao processar solicitação de saque:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
   await initializeCommissionSettings();
 
   const httpServer = createServer(app);
