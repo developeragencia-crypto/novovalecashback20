@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NotificationBell } from "@/components/ui/notification-bell";
+import { NotificationCenter } from "@/components/ui/notifications";
 import { LanguageSelector } from "@/components/ui/language-selector";
 import { ModernPWAInstall, ModernInstallButton } from "@/components/ui/modern-pwa-install";
 import "../../styles/modern-theme.css";
