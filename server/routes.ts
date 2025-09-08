@@ -2051,6 +2051,323 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === SISTEMA DE NOTIFICAÇÕES ===
+  
+  // Buscar notificações do usuário
+  app.get("/api/notifications", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      const { unread_only = "false" } = req.query;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      let query = db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.user_id, userId));
+
+      if (unread_only === "true") {
+        query = query.where(and(
+          eq(notifications.user_id, userId),
+          eq(notifications.read, false)
+        ));
+      }
+
+      const userNotifications = await query
+        .orderBy(desc(notifications.created_at))
+        .limit(50);
+
+      res.json(userNotifications);
+
+    } catch (error) {
+      console.error("Erro ao buscar notificações:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Marcar notificação como lida
+  app.put("/api/notifications/:id/read", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const updated = await db
+        .update(notifications)
+        .set({ read: true })
+        .where(
+          and(
+            eq(notifications.id, parseInt(id)),
+            eq(notifications.user_id, userId)
+          )
+        )
+        .returning();
+
+      if (!updated.length) {
+        return res.status(404).json({ message: "Notificação não encontrada" });
+      }
+
+      res.json({ success: true, notification: updated[0] });
+
+    } catch (error) {
+      console.error("Erro ao marcar notificação como lida:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Marcar todas as notificações como lidas
+  app.put("/api/notifications/read-all", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      await db
+        .update(notifications)
+        .set({ read: true })
+        .where(
+          and(
+            eq(notifications.user_id, userId),
+            eq(notifications.read, false)
+          )
+        );
+
+      res.json({ success: true, message: "Todas as notificações foram marcadas como lidas" });
+
+    } catch (error) {
+      console.error("Erro ao marcar todas as notificações como lidas:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Deletar notificação
+  app.delete("/api/notifications/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const deleted = await db
+        .delete(notifications)
+        .where(
+          and(
+            eq(notifications.id, parseInt(id)),
+            eq(notifications.user_id, userId)
+          )
+        )
+        .returning();
+
+      if (!deleted.length) {
+        return res.status(404).json({ message: "Notificação não encontrada" });
+      }
+
+      res.json({ success: true, message: "Notificação deletada" });
+
+    } catch (error) {
+      console.error("Erro ao deletar notificação:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Função helper para criar notificações
+  const createNotification = async (userId: number, type: string, title: string, message: string, data?: any) => {
+    try {
+      await db.insert(notifications).values({
+        user_id: userId,
+        type: type,
+        title: title,
+        message: message,
+        data: data ? JSON.stringify(data) : null
+      });
+    } catch (error) {
+      console.error("Erro ao criar notificação:", error);
+    }
+  };
+
+  // === SISTEMA DE INDICAÇÕES (REFERRALS) ===
+  
+  // Cliente: Obter link de indicação
+  app.get("/api/client/referral-link", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      // Gerar código único de indicação baseado no ID do usuário
+      const referralCode = `REF${userId.toString().padStart(6, '0')}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      
+      const referralLink = `${req.protocol}://${req.get('host')}/register?ref=${referralCode}`;
+
+      // Buscar estatísticas de indicações
+      const referralStats = await db
+        .select({
+          total_referrals: sql<number>`COUNT(*)`,
+          active_referrals: sql<number>`SUM(CASE WHEN ${referrals.status} = 'completed' THEN 1 ELSE 0 END)`,
+          total_bonus: sql<number>`COALESCE(SUM(CASE WHEN ${referrals.status} = 'completed' THEN CAST(${referrals.bonus} AS DECIMAL) ELSE 0 END), 0)`
+        })
+        .from(referrals)
+        .where(eq(referrals.referrer_id, userId));
+
+      res.json({
+        success: true,
+        referral_code: referralCode,
+        referral_link: referralLink,
+        stats: {
+          total_referrals: referralStats[0]?.total_referrals || 0,
+          active_referrals: referralStats[0]?.active_referrals || 0,
+          total_bonus_earned: referralStats[0]?.total_bonus || 0
+        }
+      });
+
+    } catch (error) {
+      console.error("Erro ao gerar link de indicação:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Processar indicação (usado no registro)
+  app.post("/api/referrals/process", async (req: Request, res: Response) => {
+    try {
+      const { referral_code, referred_user_id } = req.body;
+      
+      if (!referral_code || !referred_user_id) {
+        return res.status(400).json({ message: "Código de indicação e ID do usuário são obrigatórios" });
+      }
+
+      // Extrair ID do referenciador do código
+      const referrerIdMatch = referral_code.match(/^REF(\d{6})/);
+      if (!referrerIdMatch) {
+        return res.status(400).json({ message: "Código de indicação inválido" });
+      }
+
+      const referrerId = parseInt(referrerIdMatch[1]);
+
+      // Verificar se o referenciador existe
+      const referrer = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, referrerId))
+        .limit(1);
+
+      if (!referrer.length) {
+        return res.status(404).json({ message: "Usuário referenciador não encontrado" });
+      }
+
+      // Verificar se já existe uma indicação
+      const existingReferral = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.referred_id, referred_user_id))
+        .limit(1);
+
+      if (existingReferral.length > 0) {
+        return res.status(400).json({ message: "Usuário já foi indicado" });
+      }
+
+      // Criar indicação com bônus de R$ 5,00
+      const referralBonus = 5.00;
+      
+      const newReferral = await db.insert(referrals).values({
+        referrer_id: referrerId,
+        referred_id: referred_user_id,
+        bonus: referralBonus.toFixed(2),
+        status: "completed"
+      }).returning();
+
+      // Adicionar bônus ao saldo do referenciador
+      const existingCashback = await db
+        .select()
+        .from(cashbacks)
+        .where(eq(cashbacks.user_id, referrerId))
+        .limit(1);
+
+      if (existingCashback.length > 0) {
+        const currentBalance = parseFloat(existingCashback[0].balance);
+        const currentTotal = parseFloat(existingCashback[0].total_earned);
+        
+        await db
+          .update(cashbacks)
+          .set({
+            balance: (currentBalance + referralBonus).toFixed(2),
+            total_earned: (currentTotal + referralBonus).toFixed(2),
+            updated_at: new Date()
+          })
+          .where(eq(cashbacks.user_id, referrerId));
+      } else {
+        await db.insert(cashbacks).values({
+          user_id: referrerId,
+          balance: referralBonus.toFixed(2),
+          total_earned: referralBonus.toFixed(2),
+          updated_at: new Date()
+        });
+      }
+
+      // Criar notificação para o referenciador
+      await createNotification(
+        referrerId,
+        "referral",
+        "Nova indicação!",
+        `Você ganhou R$ ${referralBonus.toFixed(2)} por indicar um novo usuário!`,
+        { bonus: referralBonus, referred_user_id }
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Indicação processada com sucesso",
+        referral: newReferral[0],
+        bonus: referralBonus
+      });
+
+    } catch (error) {
+      console.error("Erro ao processar indicação:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Cliente: Histórico de indicações
+  app.get("/api/client/referrals", isUserType("client"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Usuário não autenticado" });
+      }
+
+      const userReferrals = await db
+        .select({
+          id: referrals.id,
+          bonus: referrals.bonus,
+          status: referrals.status,
+          created_at: referrals.created_at,
+          referred_name: users.name,
+          referred_email: users.email
+        })
+        .from(referrals)
+        .leftJoin(users, eq(referrals.referred_id, users.id))
+        .where(eq(referrals.referrer_id, userId))
+        .orderBy(desc(referrals.created_at))
+        .limit(50);
+
+      res.json(userReferrals);
+
+    } catch (error) {
+      console.error("Erro ao buscar histórico de indicações:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
   await initializeCommissionSettings();
 
   const httpServer = createServer(app);
