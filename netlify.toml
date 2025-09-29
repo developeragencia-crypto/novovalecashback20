@@ -1,6 +1,8 @@
 [build]
   command = "npm run build"
-  publish = "dist"
+  publish = "dist/public"
+
+# Commit for sync test - Forçando atualização no GitHub
 
 [build.environment]
   NODE_VERSION = "18"
