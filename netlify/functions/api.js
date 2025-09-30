@@ -56,44 +56,44 @@ app.get('/api/status', (req, res) => {
 // Endpoint de login
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    
+    const { email, password, type } = req.body;
     // Usuários de teste para demonstração
     const testUsers = {
       'admin@valecashback.com': {
         id: 1,
         password: 'senha123',
         name: 'Administrador',
-        type: 'admin'
+        type: 'admin',
+        email: 'admin@valecashback.com'
       },
       'cliente@valecashback.com': {
         id: 2,
         password: 'senha123',
         name: 'Cliente Teste',
-        type: 'client'
+        type: 'client',
+        email: 'cliente@valecashback.com'
       },
       'lojista@valecashback.com': {
         id: 3,
         password: 'senha123',
         name: 'Lojista Teste',
-        type: 'merchant'
+        type: 'merchant',
+        email: 'lojista@valecashback.com'
       }
     };
-    
-    // Verificar credenciais
-    const user = testUsers[username];
-    if (!user || user.password !== password) {
+
+    const user = testUsers[email];
+    if (!user || user.password !== password || user.type !== type) {
       return res.status(401).json({ message: 'Credenciais inválidas' });
     }
-    
+
     // Login bem-sucedido
     req.session.userId = user.id;
     req.session.userType = user.type;
-    
+
     // Retornar informações do usuário (exceto senha)
     const { password: _, ...userInfo } = user;
     res.json(userInfo);
-    
   } catch (error) {
     console.error('Erro ao fazer login:', error);
     res.status(500).json({ message: 'Erro no servidor' });
