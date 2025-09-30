@@ -202,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (userData: any) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/register', {
+  const response = await fetch('/api/register-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
